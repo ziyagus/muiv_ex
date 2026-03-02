@@ -1,0 +1,73 @@
+[
+  {
+    "id": 1,
+    "question": "🚗 Угадай марку авто:",
+    "image": "data/car_images/car_1.jpg",
+    "answers": ["Audi", "BMW", "Mercedes"],
+    "correct": 0
+  },
+  {
+    "id": 2,
+    "question": "🏎️ Угадай марку:",
+    "image": "data/car_images/car_2.jpg",
+    "answers": ["Lamborghini", "Ferrari", "Maserati"],
+    "correct": 2
+  },
+  {
+    "id": 3,
+    "question": "🚙 Угадай марку:",
+    "image": "data/car_images/car_3.jpg",
+    "answers": ["Mitsubishi", "Toyota", "Honda"],
+    "correct": 1
+  },
+  {
+    "id": 4,
+    "question": "🔴 Угадай марку:",
+    "image": "data/car_images/car_4.jpg",
+    "answers": ["Ferrari", "Porsche", "Lamborghini"],
+    "correct": 1
+  },
+  {
+    "id": 5,
+    "question": "⭐ Угадай марку:",
+    "image": "data/car_images/car_5.jpg",
+    "answers": ["Mercedes-Benz", "Chrysler", "BMW"],
+    "correct": 0
+  },
+  {
+    "id": 6,
+    "question": "🔵 Угадай марку:",
+    "image": "data/car_images/car_6.jpg",
+    "answers": ["Ford", "Hyundai", "Volkswagen"],
+    "correct": 2
+  },
+  {
+    "id": 7,
+    "question": "🚗 Угадай марку:",
+    "image": "data/car_images/car_7.jpg",
+    "answers": ["Hyundai", "Honda", "Mazda"],
+    "correct": 1
+  },
+  {
+    "id": 8,
+    "question": "🏁 Угадай марку:",
+    "image": "data/car_images/car_8.jpg",
+    "answers": ["Ford Mustang", "Chevrolet", "Dodge"],
+    "correct": 0
+  },
+  {
+    "id": 9,
+    "question": "⚡ Угадай марку:",
+    "image": "data/car_images/car_9.jpg",
+    "answers": ["Tesla", "Lucid", "Rivian"],
+    "correct": 0
+  },
+  {
+    "id": 10,
+    "question": "🚘 Угадай марку:",
+    "image": "data/car_images/car_10.jpg",
+    "answers": ["Toyota", "Tesla", "Opel"],
+    "correct": 2
+  }
+]
+
