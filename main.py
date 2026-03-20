@@ -14,6 +14,10 @@ QUESTIONS_AUTO = "data/questions_auto.json"
 CAR_QUIZ = "data/car_quiz.json"
 USERS_DB = "data/users.json"
 
+# система очков
+POINTS_CORRECT = 10
+POINTS_WRONG = -5
+
 # создаем объекты бота и диспетчера
 bot = Bot(token=TOKEN_BOT)
 dp = Dispatcher()
@@ -53,22 +57,19 @@ def load_questions():
 
 # функция создания клавиатуры с вариантами ответов
 def create_answer_keyboard(question, question_index):
-    # создаем кнопки для каждого варианта ответа
     buttons = []
     for i, answer in enumerate(question['answers']):
-        # в callback_data передаем индекс вопроса и индекс ответа
         button = InlineKeyboardButton(
             text=answer,
             callback_data=f"answer_{question_index}_{i}"
         )
-        buttons.append([button])  # каждая кнопка на отдельной строке
+        buttons.append([button])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
 
 # функция отправки вопроса пользователю
 async def send_question(chat_id, mode):
-    # выбираем список вопросов в зависимости от режима
     if mode == "pdd":
         questions_list = questions_pdd
         emoji = "🚦"
@@ -78,7 +79,6 @@ async def send_question(chat_id, mode):
     else:
         return
     
-    # выбираем случайный вопрос
     question = random.choice(questions_list)
     question_index = questions_list.index(question)
     
@@ -86,19 +86,61 @@ async def send_question(chat_id, mode):
     user_games[chat_id] = {
         "mode": mode,
         "question": question,
-        "question_index": question_index
+        "question_index": question_index,
+        "questions_list": questions_list
     }
     
-    # формируем текст вопроса
     question_text = f"{emoji} <b>Вопрос:</b>\n\n{question['question']}"
     
-    # отправляем вопрос с вариантами ответов
     await bot.send_message(
         chat_id,
         question_text,
         parse_mode="HTML",
         reply_markup=create_answer_keyboard(question, question_index)
     )
+
+# функция проверки ответа
+async def check_answer(callback: types.CallbackQuery, question_index, answer_index):
+    chat_id = callback.message.chat.id
+    
+    # проверяем есть ли активная игра у пользователя
+    if chat_id not in user_games:
+        await callback.message.answer("❌ Нет активной игры. Начни новую через /start")
+        return
+    
+    game = user_games[chat_id]
+    question = game['question']
+    
+    # проверяем правильность ответа
+    is_correct = (answer_index == question['correct'])
+    
+    if is_correct:
+        # правильный ответ - добавляем очки
+        points = POINTS_CORRECT
+        emoji = "✅"
+        result_text = f"{emoji} <b>Правильно!</b>\n\n💰 +{points} очков"
+    else:
+        # неправильный ответ - вычитаем очки
+        points = POINTS_WRONG
+        emoji = "❌"
+        correct_answer = question['answers'][question['correct']]
+        result_text = f"{emoji} <b>Неправильно!</b>\n\n"
+        result_text += f"Правильный ответ: {correct_answer}\n\n"
+        result_text += f"💸 {points} очков"
+    
+    # отправляем результат
+    await callback.message.answer(result_text, parse_mode="HTML")
+    
+    # удаляем игру из активных
+    del user_games[chat_id]
+    
+    # предлагаем продолжить
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➡️ Следующий вопрос", callback_data=f"mode_{game['mode']}")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.answer("Что дальше?", reply_markup=keyboard)
 
 # функция создания главного меню
 def get_main_menu():
@@ -130,8 +172,16 @@ async def handle_callback(callback: types.CallbackQuery):
     data = callback.data
     chat_id = callback.message.chat.id
     
+    # главное меню
+    if data == "main_menu":
+        welcome_text = (
+            "🚗 <b>AutoQuiz</b>\n\n"
+            "Выбери режим игры:"
+        )
+        await callback.message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
+    
     # обработка выбора режима
-    if data == "mode_pdd":
+    elif data == "mode_pdd":
         await callback.message.answer("🚦 <b>Тест ПДД</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
         await send_question(chat_id, "pdd")
     elif data == "mode_auto":
@@ -150,8 +200,13 @@ async def handle_callback(callback: types.CallbackQuery):
     
     # обработка ответов на вопросы
     elif data.startswith("answer_"):
-        # пока просто показываем что ответ получен
-        await callback.message.answer("Ответ получен!")
+        # разбираем данные
+        parts = data.split("_")
+        question_index = int(parts[1])
+        answer_index = int(parts[2])
+        
+        # проверяем ответ
+        await check_answer(callback, question_index, answer_index)
     
     await callback.answer()
 
@@ -164,4 +219,6 @@ async def main():
 # запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
+
+
 
