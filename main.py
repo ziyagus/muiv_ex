@@ -19,6 +19,9 @@ USERS_DB = "data/users.json"
 POINTS_CORRECT = 10
 POINTS_WRONG = -5
 
+# параметры экзамена
+EXAM_QUESTIONS_COUNT = 20
+
 # создаем объекты бота и диспетчера
 bot = Bot(token=TOKEN_BOT)
 dp = Dispatcher()
@@ -32,6 +35,9 @@ users_data = {}
 # словарь для хранения текущих игр пользователей
 user_games = {}
 
+# словарь для хранения экзаменов
+user_exams = {}
+
 # функция загрузки данных пользователей
 def load_users():
     global users_data
@@ -40,7 +46,6 @@ def load_users():
             users_data = json.load(f)
         print(f"✅ Загружено {len(users_data)} пользователей")
     except FileNotFoundError:
-        # если файла нет - создаем пустой словарь
         users_data = {}
         print("⚠️ Файл users.json не найден, создан новый")
     except:
@@ -59,7 +64,6 @@ def save_users():
 def get_user_profile(user_id, username="Unknown"):
     user_id_str = str(user_id)
     
-    # если пользователя нет - создаем новый профиль
     if user_id_str not in users_data:
         users_data[user_id_str] = {
             "username": username,
@@ -84,25 +88,20 @@ def update_user_score(user_id, points, is_correct, mode):
     user_id_str = str(user_id)
     profile = users_data[user_id_str]
     
-    # обновляем общие очки
     profile['total_score'] += points
     
-    # обновляем статистику ответов
     if is_correct:
         profile['correct_answers'] += 1
     else:
         profile['wrong_answers'] += 1
     
-    # обновляем счетчик игр по режиму
     if mode == "pdd":
         profile['pdd_games'] = profile.get('pdd_games', 0) + 1
     elif mode == "auto":
         profile['auto_games'] = profile.get('auto_games', 0) + 1
     
-    # обновляем дату последней игры
     profile['last_played'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # сохраняем изменения
     save_users()
 
 # функция загрузки вопросов из json
@@ -131,17 +130,87 @@ def load_questions():
         print("❌ Ошибка загрузки car_quiz.json")
 
 # функция создания клавиатуры с вариантами ответов
-def create_answer_keyboard(question, question_index):
+def create_answer_keyboard(question, question_index, is_exam=False):
     buttons = []
     for i, answer in enumerate(question['answers']):
+        if is_exam:
+            callback_data = f"exam_answer_{question_index}_{i}"
+        else:
+            callback_data = f"answer_{question_index}_{i}"
+        
         button = InlineKeyboardButton(
             text=answer,
-            callback_data=f"answer_{question_index}_{i}"
+            callback_data=callback_data
         )
         buttons.append([button])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
+
+# функция начала экзамена
+async def start_exam(chat_id, user_id):
+    # формируем список вопросов для экзамена (микс ПДД и автофактов)
+    all_questions = questions_pdd + questions_auto
+    exam_questions = random.sample(all_questions, min(EXAM_QUESTIONS_COUNT, len(all_questions)))
+    
+    # сохраняем экзамен пользователя
+    user_exams[chat_id] = {
+        "questions": exam_questions,
+        "current_index": 0,
+        "correct_count": 0,
+        "wrong_count": 0,
+        "user_id": user_id
+    }
+    
+    # отправляем первый вопрос
+    await send_exam_question(chat_id)
+
+# функция отправки вопроса экзамена
+async def send_exam_question(chat_id):
+    if chat_id not in user_exams:
+        return
+    
+    exam = user_exams[chat_id]
+    current_index = exam['current_index']
+    
+    # проверяем не закончился ли экзамен
+    if current_index >= len(exam['questions']):
+        await finish_exam(chat_id)
+        return
+    
+    question = exam['questions'][current_index]
+    
+    # формируем текст вопроса
+    question_text = (
+        f"🏁 <b>Экзамен</b>\n"
+        f"Вопрос {current_index + 1} из {len(exam['questions'])}\n\n"
+        f"{question['question']}"
+    )
+    
+    await bot.send_message(
+        chat_id,
+        question_text,
+        parse_mode="HTML",
+        reply_markup=create_answer_keyboard(question, current_index, is_exam=True)
+    )
+
+# функция завершения экзамена (пока заглушка)
+async def finish_exam(chat_id):
+    if chat_id not in user_exams:
+        return
+    
+    exam = user_exams[chat_id]
+    
+    result_text = (
+        f"🏁 <b>Экзамен завершен!</b>\n\n"
+        f"✅ Правильных ответов: {exam['correct_count']}\n"
+        f"❌ Ошибок: {exam['wrong_count']}\n"
+    )
+    
+    await bot.send_message(chat_id, result_text, parse_mode="HTML")
+    
+    # удаляем экзамен
+    del user_exams[chat_id]
 
 # функция отправки вопроса пользователю
 async def send_question(chat_id, mode):
@@ -179,7 +248,6 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
     
-    # получаем или создаем профиль пользователя
     get_user_profile(user_id, username)
     
     if chat_id not in user_games:
@@ -189,7 +257,6 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     game = user_games[chat_id]
     question = game['question']
     
-    # проверяем правильность ответа
     is_correct = (answer_index == question['correct'])
     
     if is_correct:
@@ -204,10 +271,8 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
         result_text += f"Правильный ответ: {correct_answer}\n\n"
         result_text += f"💸 {points} очков"
     
-    # обновляем очки пользователя
     update_user_score(user_id, points, is_correct, game['mode'])
     
-    # получаем обновленный профиль
     profile = users_data[str(user_id)]
     result_text += f"\n\n📊 Всего очков: {profile['total_score']}"
     
@@ -238,7 +303,6 @@ def get_main_menu():
 # обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # создаем профиль если его нет
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     get_user_profile(user_id, username)
@@ -256,6 +320,7 @@ async def cmd_start(message: types.Message):
 async def handle_callback(callback: types.CallbackQuery):
     data = callback.data
     chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
     
     if data == "main_menu":
         welcome_text = "🚗 <b>AutoQuiz</b>\n\nВыбери режим игры:"
@@ -272,7 +337,14 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "mode_random":
         await callback.message.answer("🎲 Случайная викторина (в разработке)")
     elif data == "mode_exam":
-        await callback.message.answer("🏁 Режим 'Экзамен' (в разработке)")
+        # запускаем экзамен
+        await callback.message.answer(
+            f"🏁 <b>Режим Экзамена</b>\n\n"
+            f"Тебя ждет {EXAM_QUESTIONS_COUNT} вопросов подряд!\n"
+            f"Готов? Поехали! 🚀",
+            parse_mode="HTML"
+        )
+        await start_exam(chat_id, user_id)
     elif data == "profile":
         await callback.message.answer("👤 Твой профиль (в разработке)")
     elif data == "rating":
@@ -283,6 +355,27 @@ async def handle_callback(callback: types.CallbackQuery):
         question_index = int(parts[1])
         answer_index = int(parts[2])
         await check_answer(callback, question_index, answer_index)
+    
+    elif data.startswith("exam_answer_"):
+        # пока просто переходим к следующему вопросу
+        parts = data.split("_")
+        answer_index = int(parts[3])
+        
+        if chat_id in user_exams:
+            exam = user_exams[chat_id]
+            current_question = exam['questions'][exam['current_index']]
+            
+            # проверяем ответ
+            if answer_index == current_question['correct']:
+                exam['correct_count'] += 1
+                await callback.message.answer("✅ Правильно!")
+            else:
+                exam['wrong_count'] += 1
+                await callback.message.answer("❌ Неправильно!")
+            
+            # переходим к следующему вопросу
+            exam['current_index'] += 1
+            await send_exam_question(chat_id)
     
     await callback.answer()
 
