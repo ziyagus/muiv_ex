@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -22,13 +23,87 @@ POINTS_WRONG = -5
 bot = Bot(token=TOKEN_BOT)
 dp = Dispatcher()
 
-# хранилище для вопросов
+# хранилище для вопросов и пользователей
 questions_pdd = []
 questions_auto = []
 questions_car = []
+users_data = {}
 
 # словарь для хранения текущих игр пользователей
 user_games = {}
+
+# функция загрузки данных пользователей
+def load_users():
+    global users_data
+    try:
+        with open(USERS_DB, 'r', encoding='utf-8') as f:
+            users_data = json.load(f)
+        print(f"✅ Загружено {len(users_data)} пользователей")
+    except FileNotFoundError:
+        # если файла нет - создаем пустой словарь
+        users_data = {}
+        print("⚠️ Файл users.json не найден, создан новый")
+    except:
+        users_data = {}
+        print("❌ Ошибка загрузки users.json")
+
+# функция сохранения данных пользователей
+def save_users():
+    try:
+        with open(USERS_DB, 'w', encoding='utf-8') as f:
+            json.dump(users_data, f, ensure_ascii=False, indent=2)
+    except:
+        print("❌ Ошибка сохранения users.json")
+
+# функция получения или создания профиля пользователя
+def get_user_profile(user_id, username="Unknown"):
+    user_id_str = str(user_id)
+    
+    # если пользователя нет - создаем новый профиль
+    if user_id_str not in users_data:
+        users_data[user_id_str] = {
+            "username": username,
+            "total_score": 0,
+            "games_played": 0,
+            "correct_answers": 0,
+            "wrong_answers": 0,
+            "exams_passed": 0,
+            "pdd_games": 0,
+            "auto_games": 0,
+            "car_quiz_games": 0,
+            "random_games": 0,
+            "exam_games": 0,
+            "last_played": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        save_users()
+    
+    return users_data[user_id_str]
+
+# функция обновления очков пользователя
+def update_user_score(user_id, points, is_correct, mode):
+    user_id_str = str(user_id)
+    profile = users_data[user_id_str]
+    
+    # обновляем общие очки
+    profile['total_score'] += points
+    
+    # обновляем статистику ответов
+    if is_correct:
+        profile['correct_answers'] += 1
+    else:
+        profile['wrong_answers'] += 1
+    
+    # обновляем счетчик игр по режиму
+    if mode == "pdd":
+        profile['pdd_games'] = profile.get('pdd_games', 0) + 1
+    elif mode == "auto":
+        profile['auto_games'] = profile.get('auto_games', 0) + 1
+    
+    # обновляем дату последней игры
+    profile['last_played'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # сохраняем изменения
+    save_users()
 
 # функция загрузки вопросов из json
 def load_questions():
@@ -82,7 +157,6 @@ async def send_question(chat_id, mode):
     question = random.choice(questions_list)
     question_index = questions_list.index(question)
     
-    # сохраняем информацию об игре пользователя
     user_games[chat_id] = {
         "mode": mode,
         "question": question,
@@ -102,8 +176,12 @@ async def send_question(chat_id, mode):
 # функция проверки ответа
 async def check_answer(callback: types.CallbackQuery, question_index, answer_index):
     chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
+    username = callback.from_user.username or callback.from_user.first_name
     
-    # проверяем есть ли активная игра у пользователя
+    # получаем или создаем профиль пользователя
+    get_user_profile(user_id, username)
+    
     if chat_id not in user_games:
         await callback.message.answer("❌ Нет активной игры. Начни новую через /start")
         return
@@ -115,12 +193,10 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     is_correct = (answer_index == question['correct'])
     
     if is_correct:
-        # правильный ответ - добавляем очки
         points = POINTS_CORRECT
         emoji = "✅"
         result_text = f"{emoji} <b>Правильно!</b>\n\n💰 +{points} очков"
     else:
-        # неправильный ответ - вычитаем очки
         points = POINTS_WRONG
         emoji = "❌"
         correct_answer = question['answers'][question['correct']]
@@ -128,13 +204,17 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
         result_text += f"Правильный ответ: {correct_answer}\n\n"
         result_text += f"💸 {points} очков"
     
-    # отправляем результат
+    # обновляем очки пользователя
+    update_user_score(user_id, points, is_correct, game['mode'])
+    
+    # получаем обновленный профиль
+    profile = users_data[str(user_id)]
+    result_text += f"\n\n📊 Всего очков: {profile['total_score']}"
+    
     await callback.message.answer(result_text, parse_mode="HTML")
     
-    # удаляем игру из активных
     del user_games[chat_id]
     
-    # предлагаем продолжить
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➡️ Следующий вопрос", callback_data=f"mode_{game['mode']}")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -158,6 +238,11 @@ def get_main_menu():
 # обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    # создаем профиль если его нет
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    get_user_profile(user_id, username)
+    
     welcome_text = (
         "🚗 <b>Привет! Это AutoQuiz!</b>\n\n"
         "🏁 Викторина про ПДД и автомобили,\n"
@@ -172,15 +257,10 @@ async def handle_callback(callback: types.CallbackQuery):
     data = callback.data
     chat_id = callback.message.chat.id
     
-    # главное меню
     if data == "main_menu":
-        welcome_text = (
-            "🚗 <b>AutoQuiz</b>\n\n"
-            "Выбери режим игры:"
-        )
+        welcome_text = "🚗 <b>AutoQuiz</b>\n\nВыбери режим игры:"
         await callback.message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
     
-    # обработка выбора режима
     elif data == "mode_pdd":
         await callback.message.answer("🚦 <b>Тест ПДД</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
         await send_question(chat_id, "pdd")
@@ -198,14 +278,10 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "rating":
         await callback.message.answer("🏆 Рейтинг игроков (в разработке)")
     
-    # обработка ответов на вопросы
     elif data.startswith("answer_"):
-        # разбираем данные
         parts = data.split("_")
         question_index = int(parts[1])
         answer_index = int(parts[2])
-        
-        # проверяем ответ
         await check_answer(callback, question_index, answer_index)
     
     await callback.answer()
@@ -213,12 +289,10 @@ async def handle_callback(callback: types.CallbackQuery):
 # главная функция запуска бота
 async def main():
     load_questions()
+    load_users()
     print("🤖 Бот запущен!")
     await dp.start_polling(bot)
 
 # запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
