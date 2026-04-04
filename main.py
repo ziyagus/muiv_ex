@@ -9,36 +9,27 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 # токен бота
 TOKEN_BOT = "token"
 
-# пути к файлам
 QUESTIONS_PDD = "data/questions_pdd.json"
 QUESTIONS_AUTO = "data/questions_auto.json"
 CAR_QUIZ = "data/car_quiz.json"
 USERS_DB = "data/users.json"
 
-# система очков
 POINTS_CORRECT = 10
 POINTS_WRONG = -5
-
-# параметры экзамена
 EXAM_QUESTIONS_COUNT = 20
 
 # создаем объекты бота и диспетчера
 bot = Bot(token=TOKEN_BOT)
 dp = Dispatcher()
 
-# хранилище для вопросов и пользователей
 questions_pdd = []
 questions_auto = []
 questions_car = []
 users_data = {}
 
-# словарь для хранения текущих игр пользователей
 user_games = {}
-
-# словарь для хранения экзаменов
 user_exams = {}
 
-# функция загрузки данных пользователей
 def load_users():
     global users_data
     try:
@@ -52,7 +43,6 @@ def load_users():
         users_data = {}
         print("❌ Ошибка загрузки users.json")
 
-# функция сохранения данных пользователей
 def save_users():
     try:
         with open(USERS_DB, 'w', encoding='utf-8') as f:
@@ -60,7 +50,6 @@ def save_users():
     except:
         print("❌ Ошибка сохранения users.json")
 
-# функция получения или создания профиля пользователя
 def get_user_profile(user_id, username="Unknown"):
     user_id_str = str(user_id)
     
@@ -83,7 +72,6 @@ def get_user_profile(user_id, username="Unknown"):
     
     return users_data[user_id_str]
 
-# функция обновления очков пользователя
 def update_user_score(user_id, points, is_correct, mode):
     user_id_str = str(user_id)
     profile = users_data[user_id_str]
@@ -104,7 +92,6 @@ def update_user_score(user_id, points, is_correct, mode):
     
     save_users()
 
-# функция загрузки вопросов из json
 def load_questions():
     global questions_pdd, questions_auto, questions_car
     
@@ -129,7 +116,6 @@ def load_questions():
     except:
         print("❌ Ошибка загрузки car_quiz.json")
 
-# функция создания клавиатуры с вариантами ответов
 def create_answer_keyboard(question, question_index, is_exam=False):
     buttons = []
     for i, answer in enumerate(question['answers']):
@@ -147,13 +133,11 @@ def create_answer_keyboard(question, question_index, is_exam=False):
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
 
-# функция начала экзамена
 async def start_exam(chat_id, user_id):
-    # формируем список вопросов для экзамена (микс ПДД и автофактов)
+    # формируем список вопросов для экзамена
     all_questions = questions_pdd + questions_auto
     exam_questions = random.sample(all_questions, min(EXAM_QUESTIONS_COUNT, len(all_questions)))
     
-    # сохраняем экзамен пользователя
     user_exams[chat_id] = {
         "questions": exam_questions,
         "current_index": 0,
@@ -162,10 +146,8 @@ async def start_exam(chat_id, user_id):
         "user_id": user_id
     }
     
-    # отправляем первый вопрос
     await send_exam_question(chat_id)
 
-# функция отправки вопроса экзамена
 async def send_exam_question(chat_id):
     if chat_id not in user_exams:
         return
@@ -180,7 +162,6 @@ async def send_exam_question(chat_id):
     
     question = exam['questions'][current_index]
     
-    # формируем текст вопроса
     question_text = (
         f"🏁 <b>Экзамен</b>\n"
         f"Вопрос {current_index + 1} из {len(exam['questions'])}\n\n"
@@ -194,25 +175,69 @@ async def send_exam_question(chat_id):
         reply_markup=create_answer_keyboard(question, current_index, is_exam=True)
     )
 
-# функция завершения экзамена (пока заглушка)
 async def finish_exam(chat_id):
     if chat_id not in user_exams:
         return
     
     exam = user_exams[chat_id]
+    user_id = exam['user_id']
+    
+    # подсчитываем итоговые очки за экзамен
+    total_points = (exam['correct_count'] * POINTS_CORRECT) + (exam['wrong_count'] * POINTS_WRONG)
+    
+    # обновляем профиль пользователя
+    user_id_str = str(user_id)
+    if user_id_str in users_data:
+        profile = users_data[user_id_str]
+        profile['total_score'] += total_points
+        profile['exam_games'] = profile.get('exam_games', 0) + 1
+        
+        # считаем экзамен пройденным если правильных ответов больше 70%
+        if exam['correct_count'] >= (len(exam['questions']) * 0.7):
+            profile['exams_passed'] = profile.get('exams_passed', 0) + 1
+        
+        save_users()
+    
+    # формируем итоговое сообщение
+    total_questions = len(exam['questions'])
+    percentage = (exam['correct_count'] / total_questions) * 100
     
     result_text = (
         f"🏁 <b>Экзамен завершен!</b>\n\n"
-        f"✅ Правильных ответов: {exam['correct_count']}\n"
+        f"📊 Результаты:\n"
+        f"✅ Правильных ответов: {exam['correct_count']}/{total_questions}\n"
         f"❌ Ошибок: {exam['wrong_count']}\n"
+        f"📈 Процент: {percentage:.1f}%\n\n"
     )
     
+    # оценка результата
+    if percentage >= 90:
+        result_text += "🏆 Оценка: ОТЛИЧНО! Ты настоящий профи!\n"
+    elif percentage >= 70:
+        result_text += "👍 Оценка: ХОРОШО! Ты молодец!\n"
+    elif percentage >= 50:
+        result_text += "😐 Оценка: УДОВЛЕТВОРИТЕЛЬНО. Можно лучше!\n"
+    else:
+        result_text += "😔 Оценка: НЕУДОВЛЕТВОРИТЕЛЬНО. Попробуй еще раз!\n"
+    
+    result_text += f"\n💰 Заработано очков: {total_points}\n"
+    
+    if user_id_str in users_data:
+        result_text += f"📊 Всего очков: {users_data[user_id_str]['total_score']}"
+    
     await bot.send_message(chat_id, result_text, parse_mode="HTML")
+    
+    # предлагаем меню
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Пройти еще раз", callback_data="mode_exam")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await bot.send_message(chat_id, "Что дальше?", reply_markup=keyboard)
     
     # удаляем экзамен
     del user_exams[chat_id]
 
-# функция отправки вопроса пользователю
 async def send_question(chat_id, mode):
     if mode == "pdd":
         questions_list = questions_pdd
@@ -242,7 +267,6 @@ async def send_question(chat_id, mode):
         reply_markup=create_answer_keyboard(question, question_index)
     )
 
-# функция проверки ответа
 async def check_answer(callback: types.CallbackQuery, question_index, answer_index):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
@@ -287,7 +311,6 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     
     await callback.message.answer("Что дальше?", reply_markup=keyboard)
 
-# функция создания главного меню
 def get_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚦 Тест ПДД", callback_data="mode_pdd")],
@@ -315,7 +338,6 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
 
-# обработчик нажатий на кнопки
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
     data = callback.data
@@ -337,7 +359,6 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "mode_random":
         await callback.message.answer("🎲 Случайная викторина (в разработке)")
     elif data == "mode_exam":
-        # запускаем экзамен
         await callback.message.answer(
             f"🏁 <b>Режим Экзамена</b>\n\n"
             f"Тебя ждет {EXAM_QUESTIONS_COUNT} вопросов подряд!\n"
@@ -357,7 +378,6 @@ async def handle_callback(callback: types.CallbackQuery):
         await check_answer(callback, question_index, answer_index)
     
     elif data.startswith("exam_answer_"):
-        # пока просто переходим к следующему вопросу
         parts = data.split("_")
         answer_index = int(parts[3])
         
@@ -366,12 +386,15 @@ async def handle_callback(callback: types.CallbackQuery):
             current_question = exam['questions'][exam['current_index']]
             
             # проверяем ответ
-            if answer_index == current_question['correct']:
+            is_correct = (answer_index == current_question['correct'])
+            
+            if is_correct:
                 exam['correct_count'] += 1
                 await callback.message.answer("✅ Правильно!")
             else:
                 exam['wrong_count'] += 1
-                await callback.message.answer("❌ Неправильно!")
+                correct_answer = current_question['answers'][current_question['correct']]
+                await callback.message.answer(f"❌ Неправильно!\nПравильный ответ: {correct_answer}")
             
             # переходим к следующему вопросу
             exam['current_index'] += 1
@@ -389,3 +412,6 @@ async def main():
 # запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
