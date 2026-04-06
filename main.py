@@ -92,6 +92,40 @@ def update_user_score(user_id, points, is_correct, mode):
     
     save_users()
 
+# функция получения рейтинга
+def get_rating_text():
+    # сортируем пользователей по очкам
+    sorted_users = sorted(
+        users_data.items(),
+        key=lambda x: x[1].get('total_score', 0),
+        reverse=True
+    )
+    
+    # берем топ-10
+    top_users = sorted_users[:10]
+    
+    if not top_users:
+        return "🏆 <b>Рейтинг пуст</b>\n\nСтань первым!"
+    
+    rating_text = "🏆 <b>Рейтинг игроков</b>\n\n"
+    
+    # медали для топ-3
+    medals = ["🥇", "🥈", "🥉"]
+    
+    for i, (user_id, profile) in enumerate(top_users, 1):
+        # выбираем эмодзи для позиции
+        if i <= 3:
+            position_emoji = medals[i - 1]
+        else:
+            position_emoji = f"{i}."
+        
+        username = profile.get('username', 'Unknown')
+        score = profile.get('total_score', 0)
+        
+        rating_text += f"{position_emoji} {username} — {score} очков\n"
+    
+    return rating_text
+
 def load_questions():
     global questions_pdd, questions_auto, questions_car
     
@@ -134,7 +168,6 @@ def create_answer_keyboard(question, question_index, is_exam=False):
     return keyboard
 
 async def start_exam(chat_id, user_id):
-    # формируем список вопросов для экзамена
     all_questions = questions_pdd + questions_auto
     exam_questions = random.sample(all_questions, min(EXAM_QUESTIONS_COUNT, len(all_questions)))
     
@@ -155,7 +188,6 @@ async def send_exam_question(chat_id):
     exam = user_exams[chat_id]
     current_index = exam['current_index']
     
-    # проверяем не закончился ли экзамен
     if current_index >= len(exam['questions']):
         await finish_exam(chat_id)
         return
@@ -182,23 +214,19 @@ async def finish_exam(chat_id):
     exam = user_exams[chat_id]
     user_id = exam['user_id']
     
-    # подсчитываем итоговые очки за экзамен
     total_points = (exam['correct_count'] * POINTS_CORRECT) + (exam['wrong_count'] * POINTS_WRONG)
     
-    # обновляем профиль пользователя
     user_id_str = str(user_id)
     if user_id_str in users_data:
         profile = users_data[user_id_str]
         profile['total_score'] += total_points
         profile['exam_games'] = profile.get('exam_games', 0) + 1
         
-        # считаем экзамен пройденным если правильных ответов больше 70%
         if exam['correct_count'] >= (len(exam['questions']) * 0.7):
             profile['exams_passed'] = profile.get('exams_passed', 0) + 1
         
         save_users()
     
-    # формируем итоговое сообщение
     total_questions = len(exam['questions'])
     percentage = (exam['correct_count'] / total_questions) * 100
     
@@ -210,7 +238,6 @@ async def finish_exam(chat_id):
         f"📈 Процент: {percentage:.1f}%\n\n"
     )
     
-    # оценка результата
     if percentage >= 90:
         result_text += "🏆 Оценка: ОТЛИЧНО! Ты настоящий профи!\n"
     elif percentage >= 70:
@@ -227,7 +254,6 @@ async def finish_exam(chat_id):
     
     await bot.send_message(chat_id, result_text, parse_mode="HTML")
     
-    # предлагаем меню
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Пройти еще раз", callback_data="mode_exam")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -235,7 +261,6 @@ async def finish_exam(chat_id):
     
     await bot.send_message(chat_id, "Что дальше?", reply_markup=keyboard)
     
-    # удаляем экзамен
     del user_exams[chat_id]
 
 async def send_question(chat_id, mode):
@@ -369,7 +394,9 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "profile":
         await callback.message.answer("👤 Твой профиль (в разработке)")
     elif data == "rating":
-        await callback.message.answer("🏆 Рейтинг игроков (в разработке)")
+        # показываем рейтинг
+        rating_text = get_rating_text()
+        await callback.message.answer(rating_text, parse_mode="HTML")
     
     elif data.startswith("answer_"):
         parts = data.split("_")
@@ -385,7 +412,6 @@ async def handle_callback(callback: types.CallbackQuery):
             exam = user_exams[chat_id]
             current_question = exam['questions'][exam['current_index']]
             
-            # проверяем ответ
             is_correct = (answer_index == current_question['correct'])
             
             if is_correct:
@@ -396,7 +422,6 @@ async def handle_callback(callback: types.CallbackQuery):
                 correct_answer = current_question['answers'][current_question['correct']]
                 await callback.message.answer(f"❌ Неправильно!\nПравильный ответ: {correct_answer}")
             
-            # переходим к следующему вопросу
             exam['current_index'] += 1
             await send_exam_question(chat_id)
     
