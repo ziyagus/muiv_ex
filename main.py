@@ -92,16 +92,79 @@ def update_user_score(user_id, points, is_correct, mode):
     
     save_users()
 
-# функция получения рейтинга
+# функция получения текста профиля
+def get_profile_text(user_id):
+    user_id_str = str(user_id)
+    
+    if user_id_str not in users_data:
+        return "❌ Профиль не найден. Начни игру через /start"
+    
+    profile = users_data[user_id_str]
+    
+    username = profile.get('username', 'Unknown')
+    total_score = profile.get('total_score', 0)
+    correct = profile.get('correct_answers', 0)
+    wrong = profile.get('wrong_answers', 0)
+    total_answers = correct + wrong
+    exams_passed = profile.get('exams_passed', 0)
+    
+    # считаем процент правильных ответов
+    if total_answers > 0:
+        accuracy = (correct / total_answers) * 100
+    else:
+        accuracy = 0
+    
+    profile_text = (
+        f"👤 <b>Профиль: {username}</b>\n\n"
+        f"💰 Всего очков: {total_score}\n"
+        f"✅ Правильных ответов: {correct}\n"
+        f"❌ Неправильных ответов: {wrong}\n"
+        f"📊 Точность: {accuracy:.1f}%\n\n"
+        f"🚦 Игр ПДД: {profile.get('pdd_games', 0)}\n"
+        f"🚗 Игр Автофакты: {profile.get('auto_games', 0)}\n"
+        f"🚘 Игр Угадай авто: {profile.get('car_quiz_games', 0)}\n"
+        f"🎲 Случайных игр: {profile.get('random_games', 0)}\n"
+        f"🏁 Экзаменов сдано: {exams_passed}\n\n"
+        f"🕐 Последняя игра: {profile.get('last_played', 'Никогда')}"
+    )
+    
+    return profile_text
+
+# функция сброса прогресса
+def reset_user_progress(user_id):
+    user_id_str = str(user_id)
+    
+    if user_id_str in users_data:
+        username = users_data[user_id_str].get('username', 'Unknown')
+        
+        # сбрасываем всё кроме имени
+        users_data[user_id_str] = {
+            "username": username,
+            "total_score": 0,
+            "games_played": 0,
+            "correct_answers": 0,
+            "wrong_answers": 0,
+            "exams_passed": 0,
+            "pdd_games": 0,
+            "auto_games": 0,
+            "car_quiz_games": 0,
+            "random_games": 0,
+            "exam_games": 0,
+            "last_played": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        save_users()
+        return True
+    
+    return False
+
 def get_rating_text():
-    # сортируем пользователей по очкам
     sorted_users = sorted(
         users_data.items(),
         key=lambda x: x[1].get('total_score', 0),
         reverse=True
     )
     
-    # берем топ-10
     top_users = sorted_users[:10]
     
     if not top_users:
@@ -109,11 +172,9 @@ def get_rating_text():
     
     rating_text = "🏆 <b>Рейтинг игроков</b>\n\n"
     
-    # медали для топ-3
     medals = ["🥇", "🥈", "🥉"]
     
     for i, (user_id, profile) in enumerate(top_users, 1):
-        # выбираем эмодзи для позиции
         if i <= 3:
             position_emoji = medals[i - 1]
         else:
@@ -392,9 +453,43 @@ async def handle_callback(callback: types.CallbackQuery):
         )
         await start_exam(chat_id, user_id)
     elif data == "profile":
-        await callback.message.answer("👤 Твой профиль (в разработке)")
+        # показываем профиль
+        profile_text = get_profile_text(user_id)
+        
+        # кнопка сброса прогресса
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+        
+        await callback.message.answer(profile_text, parse_mode="HTML", reply_markup=keyboard)
+    
+    elif data == "reset_progress":
+        # подтверждение сброса
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да, сбросить", callback_data="reset_confirm")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="profile")]
+        ])
+        
+        await callback.message.answer(
+            "⚠️ <b>Внимание!</b>\n\nТы уверен, что хочешь сбросить весь прогресс?\n"
+            "Все очки и статистика будут удалены!",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    
+    elif data == "reset_confirm":
+        # сбрасываем прогресс
+        if reset_user_progress(user_id):
+            await callback.message.answer(
+                "✅ <b>Прогресс сброшен!</b>\n\nТеперь можешь начать заново!",
+                parse_mode="HTML",
+                reply_markup=get_main_menu()
+            )
+        else:
+            await callback.message.answer("❌ Ошибка сброса прогресса")
+    
     elif data == "rating":
-        # показываем рейтинг
         rating_text = get_rating_text()
         await callback.message.answer(rating_text, parse_mode="HTML")
     
