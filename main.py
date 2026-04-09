@@ -83,16 +83,18 @@ def update_user_score(user_id, points, is_correct, mode):
     else:
         profile['wrong_answers'] += 1
     
+    # обновляем счетчик игр по режиму
     if mode == "pdd":
         profile['pdd_games'] = profile.get('pdd_games', 0) + 1
     elif mode == "auto":
         profile['auto_games'] = profile.get('auto_games', 0) + 1
+    elif mode == "random":
+        profile['random_games'] = profile.get('random_games', 0) + 1
     
     profile['last_played'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     save_users()
 
-# функция получения текста профиля
 def get_profile_text(user_id):
     user_id_str = str(user_id)
     
@@ -108,7 +110,6 @@ def get_profile_text(user_id):
     total_answers = correct + wrong
     exams_passed = profile.get('exams_passed', 0)
     
-    # считаем процент правильных ответов
     if total_answers > 0:
         accuracy = (correct / total_answers) * 100
     else:
@@ -130,14 +131,12 @@ def get_profile_text(user_id):
     
     return profile_text
 
-# функция сброса прогресса
 def reset_user_progress(user_id):
     user_id_str = str(user_id)
     
     if user_id_str in users_data:
         username = users_data[user_id_str].get('username', 'Unknown')
         
-        # сбрасываем всё кроме имени
         users_data[user_id_str] = {
             "username": username,
             "total_score": 0,
@@ -324,6 +323,7 @@ async def finish_exam(chat_id):
     
     del user_exams[chat_id]
 
+# функция отправки вопроса (обновленная с поддержкой random)
 async def send_question(chat_id, mode):
     if mode == "pdd":
         questions_list = questions_pdd
@@ -331,6 +331,10 @@ async def send_question(chat_id, mode):
     elif mode == "auto":
         questions_list = questions_auto
         emoji = "🚗"
+    elif mode == "random":
+        # в случайном режиме берем вопросы из обоих списков
+        questions_list = questions_pdd + questions_auto
+        emoji = "🎲"
     else:
         return
     
@@ -443,7 +447,13 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "mode_car_quiz":
         await callback.message.answer("🚘 Режим 'Угадай машину' (в разработке)")
     elif data == "mode_random":
-        await callback.message.answer("🎲 Случайная викторина (в разработке)")
+        # запускаем случайную викторину
+        await callback.message.answer(
+            "🎲 <b>Случайная викторина</b>\n\n"
+            "Вопросы из разных тем - будь готов ко всему! 🔥",
+            parse_mode="HTML"
+        )
+        await send_question(chat_id, "random")
     elif data == "mode_exam":
         await callback.message.answer(
             f"🏁 <b>Режим Экзамена</b>\n\n"
@@ -453,10 +463,8 @@ async def handle_callback(callback: types.CallbackQuery):
         )
         await start_exam(chat_id, user_id)
     elif data == "profile":
-        # показываем профиль
         profile_text = get_profile_text(user_id)
         
-        # кнопка сброса прогресса
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔄 Сбросить прогресс", callback_data="reset_progress")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -465,7 +473,6 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer(profile_text, parse_mode="HTML", reply_markup=keyboard)
     
     elif data == "reset_progress":
-        # подтверждение сброса
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Да, сбросить", callback_data="reset_confirm")],
             [InlineKeyboardButton(text="❌ Отмена", callback_data="profile")]
@@ -479,7 +486,6 @@ async def handle_callback(callback: types.CallbackQuery):
         )
     
     elif data == "reset_confirm":
-        # сбрасываем прогресс
         if reset_user_progress(user_id):
             await callback.message.answer(
                 "✅ <b>Прогресс сброшен!</b>\n\nТеперь можешь начать заново!",
