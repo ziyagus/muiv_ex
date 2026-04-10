@@ -4,7 +4,7 @@ import random
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
 # токен бота
 TOKEN_BOT = "token"
@@ -83,13 +83,14 @@ def update_user_score(user_id, points, is_correct, mode):
     else:
         profile['wrong_answers'] += 1
     
-    # обновляем счетчик игр по режиму
     if mode == "pdd":
         profile['pdd_games'] = profile.get('pdd_games', 0) + 1
     elif mode == "auto":
         profile['auto_games'] = profile.get('auto_games', 0) + 1
     elif mode == "random":
         profile['random_games'] = profile.get('random_games', 0) + 1
+    elif mode == "car_quiz":
+        profile['car_quiz_games'] = profile.get('car_quiz_games', 0) + 1
     
     profile['last_played'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -210,11 +211,13 @@ def load_questions():
     except:
         print("❌ Ошибка загрузки car_quiz.json")
 
-def create_answer_keyboard(question, question_index, is_exam=False):
+def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=False):
     buttons = []
     for i, answer in enumerate(question['answers']):
         if is_exam:
             callback_data = f"exam_answer_{question_index}_{i}"
+        elif is_car_quiz:
+            callback_data = f"car_answer_{question_index}_{i}"
         else:
             callback_data = f"answer_{question_index}_{i}"
         
@@ -226,6 +229,48 @@ def create_answer_keyboard(question, question_index, is_exam=False):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
+
+# функция отправки вопроса с фото машины
+async def send_car_question(chat_id):
+    if not questions_car:
+        await bot.send_message(chat_id, "❌ Вопросы с машинами не загружены")
+        return
+    
+    # выбираем случайный вопрос с машиной
+    question = random.choice(questions_car)
+    question_index = questions_car.index(question)
+    
+    # сохраняем игру
+    user_games[chat_id] = {
+        "mode": "car_quiz",
+        "question": question,
+        "question_index": question_index,
+        "questions_list": questions_car
+    }
+    
+    # получаем путь к картинке
+    image_path = question.get('image', '')
+    
+    try:
+        # отправляем фото с вопросом
+        photo = FSInputFile(image_path)
+        
+        await bot.send_photo(
+            chat_id,
+            photo=photo,
+            caption=f"🚘 <b>{question['question']}</b>",
+            parse_mode="HTML",
+            reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
+        )
+    except Exception as e:
+        # если не получилось отправить фото - отправляем текстом
+        print(f"Ошибка отправки фото: {e}")
+        await bot.send_message(
+            chat_id,
+            f"🚘 <b>{question['question']}</b>\n\n(фото не загрузилось)",
+            parse_mode="HTML",
+            reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
+        )
 
 async def start_exam(chat_id, user_id):
     all_questions = questions_pdd + questions_auto
@@ -323,7 +368,6 @@ async def finish_exam(chat_id):
     
     del user_exams[chat_id]
 
-# функция отправки вопроса (обновленная с поддержкой random)
 async def send_question(chat_id, mode):
     if mode == "pdd":
         questions_list = questions_pdd
@@ -332,7 +376,6 @@ async def send_question(chat_id, mode):
         questions_list = questions_auto
         emoji = "🚗"
     elif mode == "random":
-        # в случайном режиме берем вопросы из обоих списков
         questions_list = questions_pdd + questions_auto
         emoji = "🎲"
     else:
@@ -445,9 +488,14 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer("🚗 <b>Автофакты</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
         await send_question(chat_id, "auto")
     elif data == "mode_car_quiz":
-        await callback.message.answer("🚘 Режим 'Угадай машину' (в разработке)")
+        # запускаем режим угадай машину
+        await callback.message.answer(
+            "🚘 <b>Угадай машину по фото</b>\n\n"
+            "Смотри на фото и выбирай правильную марку! 📸",
+            parse_mode="HTML"
+        )
+        await send_car_question(chat_id)
     elif data == "mode_random":
-        # запускаем случайную викторину
         await callback.message.answer(
             "🎲 <b>Случайная викторина</b>\n\n"
             "Вопросы из разных тем - будь готов ко всему! 🔥",
@@ -504,6 +552,10 @@ async def handle_callback(callback: types.CallbackQuery):
         question_index = int(parts[1])
         answer_index = int(parts[2])
         await check_answer(callback, question_index, answer_index)
+    
+    elif data.startswith("car_answer_"):
+        # обработка ответа на викторину с машинами (пока заглушка)
+        await callback.message.answer("Ответ на фото-викторину получен")
     
     elif data.startswith("exam_answer_"):
         parts = data.split("_")
