@@ -230,17 +230,14 @@ def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
 
-# функция отправки вопроса с фото машины
 async def send_car_question(chat_id):
     if not questions_car:
         await bot.send_message(chat_id, "❌ Вопросы с машинами не загружены")
         return
     
-    # выбираем случайный вопрос с машиной
     question = random.choice(questions_car)
     question_index = questions_car.index(question)
     
-    # сохраняем игру
     user_games[chat_id] = {
         "mode": "car_quiz",
         "question": question,
@@ -248,11 +245,9 @@ async def send_car_question(chat_id):
         "questions_list": questions_car
     }
     
-    # получаем путь к картинке
     image_path = question.get('image', '')
     
     try:
-        # отправляем фото с вопросом
         photo = FSInputFile(image_path)
         
         await bot.send_photo(
@@ -263,7 +258,6 @@ async def send_car_question(chat_id):
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
     except Exception as e:
-        # если не получилось отправить фото - отправляем текстом
         print(f"Ошибка отправки фото: {e}")
         await bot.send_message(
             chat_id,
@@ -271,6 +265,51 @@ async def send_car_question(chat_id):
             parse_mode="HTML",
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
+
+# функция проверки ответа на фото-викторину
+async def check_car_answer(callback: types.CallbackQuery, question_index, answer_index):
+    chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
+    username = callback.from_user.username or callback.from_user.first_name
+    
+    get_user_profile(user_id, username)
+    
+    if chat_id not in user_games:
+        await callback.message.answer("❌ Нет активной игры. Начни новую через /start")
+        return
+    
+    game = user_games[chat_id]
+    question = game['question']
+    
+    is_correct = (answer_index == question['correct'])
+    
+    if is_correct:
+        points = POINTS_CORRECT
+        emoji = "✅"
+        result_text = f"{emoji} <b>Правильно!</b>\n\n💰 +{points} очков"
+    else:
+        points = POINTS_WRONG
+        emoji = "❌"
+        correct_answer = question['answers'][question['correct']]
+        result_text = f"{emoji} <b>Неправильно!</b>\n\n"
+        result_text += f"Правильный ответ: {correct_answer}\n\n"
+        result_text += f"💸 {points} очков"
+    
+    update_user_score(user_id, points, is_correct, "car_quiz")
+    
+    profile = users_data[str(user_id)]
+    result_text += f"\n\n📊 Всего очков: {profile['total_score']}"
+    
+    await callback.message.answer(result_text, parse_mode="HTML")
+    
+    del user_games[chat_id]
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➡️ Следующее фото", callback_data="mode_car_quiz")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.answer("Что дальше?", reply_markup=keyboard)
 
 async def start_exam(chat_id, user_id):
     all_questions = questions_pdd + questions_auto
@@ -488,7 +527,6 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer("🚗 <b>Автофакты</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
         await send_question(chat_id, "auto")
     elif data == "mode_car_quiz":
-        # запускаем режим угадай машину
         await callback.message.answer(
             "🚘 <b>Угадай машину по фото</b>\n\n"
             "Смотри на фото и выбирай правильную марку! 📸",
@@ -554,8 +592,11 @@ async def handle_callback(callback: types.CallbackQuery):
         await check_answer(callback, question_index, answer_index)
     
     elif data.startswith("car_answer_"):
-        # обработка ответа на викторину с машинами (пока заглушка)
-        await callback.message.answer("Ответ на фото-викторину получен")
+        # обработка ответа на фото-викторину
+        parts = data.split("_")
+        question_index = int(parts[2])
+        answer_index = int(parts[3])
+        await check_car_answer(callback, question_index, answer_index)
     
     elif data.startswith("exam_answer_"):
         parts = data.split("_")
