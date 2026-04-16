@@ -30,6 +30,25 @@ users_data = {}
 user_games = {}
 user_exams = {}
 
+# мотивирующие фразы для правильных ответов
+positive_phrases = [
+    "Отлично! 🎉",
+    "Супер! 💪",
+    "Молодец! 🌟",
+    "Так держать! 🚀",
+    "Круто! 🔥",
+    "Ты на высоте! ⭐"
+]
+
+# фразы для неправильных ответов
+negative_phrases = [
+    "Ничего, в следующий раз получится! 💪",
+    "Не расстраивайся, продолжай! 🎯",
+    "Учимся на ошибках! 📚",
+    "Попробуй еще раз! 🔄",
+    "Так бывает! 🤷‍♂️"
+]
+
 def load_users():
     global users_data
     try:
@@ -116,18 +135,23 @@ def get_profile_text(user_id):
     else:
         accuracy = 0
     
+    # красивое форматирование профиля
     profile_text = (
-        f"👤 <b>Профиль: {username}</b>\n\n"
-        f"💰 Всего очков: {total_score}\n"
-        f"✅ Правильных ответов: {correct}\n"
-        f"❌ Неправильных ответов: {wrong}\n"
-        f"📊 Точность: {accuracy:.1f}%\n\n"
-        f"🚦 Игр ПДД: {profile.get('pdd_games', 0)}\n"
-        f"🚗 Игр Автофакты: {profile.get('auto_games', 0)}\n"
-        f"🚘 Игр Угадай авто: {profile.get('car_quiz_games', 0)}\n"
-        f"🎲 Случайных игр: {profile.get('random_games', 0)}\n"
-        f"🏁 Экзаменов сдано: {exams_passed}\n\n"
-        f"🕐 Последняя игра: {profile.get('last_played', 'Никогда')}"
+        f"╔═══════════════════╗\n"
+        f"👤 <b>{username}</b>\n"
+        f"╚═══════════════════╝\n\n"
+        f"💰 <b>Очки:</b> {total_score}\n"
+        f"✅ <b>Правильно:</b> {correct}\n"
+        f"❌ <b>Неправильно:</b> {wrong}\n"
+        f"📊 <b>Точность:</b> {accuracy:.1f}%\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🚦 ПДД: {profile.get('pdd_games', 0)}\n"
+        f"🚗 Автофакты: {profile.get('auto_games', 0)}\n"
+        f"🚘 Угадай авто: {profile.get('car_quiz_games', 0)}\n"
+        f"🎲 Случайные: {profile.get('random_games', 0)}\n"
+        f"🏁 Экзаменов сдано: {exams_passed}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🕐 Последняя игра:\n{profile.get('last_played', 'Никогда')}"
     )
     
     return profile_text
@@ -168,9 +192,14 @@ def get_rating_text():
     top_users = sorted_users[:10]
     
     if not top_users:
-        return "🏆 <b>Рейтинг пуст</b>\n\nСтань первым!"
+        return "🏆 <b>Рейтинг пуст</b>\n\nСтань первым игроком! 🚀"
     
-    rating_text = "🏆 <b>Рейтинг игроков</b>\n\n"
+    # красивое форматирование рейтинга
+    rating_text = (
+        "╔═══════════════════╗\n"
+        "🏆 <b>ТОП ИГРОКОВ</b>\n"
+        "╚═══════════════════╝\n\n"
+    )
     
     medals = ["🥇", "🥈", "🥉"]
     
@@ -183,7 +212,7 @@ def get_rating_text():
         username = profile.get('username', 'Unknown')
         score = profile.get('total_score', 0)
         
-        rating_text += f"{position_emoji} {username} — {score} очков\n"
+        rating_text += f"{position_emoji} <b>{username}</b>\n    💰 {score} очков\n\n"
     
     return rating_text
 
@@ -266,7 +295,6 @@ async def send_car_question(chat_id):
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
 
-# функция проверки ответа на фото-викторину
 async def check_car_answer(callback: types.CallbackQuery, question_index, answer_index):
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
@@ -285,20 +313,20 @@ async def check_car_answer(callback: types.CallbackQuery, question_index, answer
     
     if is_correct:
         points = POINTS_CORRECT
-        emoji = "✅"
-        result_text = f"{emoji} <b>Правильно!</b>\n\n💰 +{points} очков"
+        phrase = random.choice(positive_phrases)
+        result_text = f"✅ <b>{phrase}</b>\n\n💰 +{points} очков"
     else:
         points = POINTS_WRONG
-        emoji = "❌"
+        phrase = random.choice(negative_phrases)
         correct_answer = question['answers'][question['correct']]
-        result_text = f"{emoji} <b>Неправильно!</b>\n\n"
-        result_text += f"Правильный ответ: {correct_answer}\n\n"
-        result_text += f"💸 {points} очков"
+        result_text = f"❌ <b>Неправильно!</b>\n\n"
+        result_text += f"✔️ Правильный ответ: <b>{correct_answer}</b>\n\n"
+        result_text += f"{phrase}\n💸 {points} очков"
     
     update_user_score(user_id, points, is_correct, "car_quiz")
     
     profile = users_data[str(user_id)]
-    result_text += f"\n\n📊 Всего очков: {profile['total_score']}"
+    result_text += f"\n\n📊 Всего очков: <b>{profile['total_score']}</b>"
     
     await callback.message.answer(result_text, parse_mode="HTML")
     
@@ -339,7 +367,8 @@ async def send_exam_question(chat_id):
     question = exam['questions'][current_index]
     
     question_text = (
-        f"🏁 <b>Экзамен</b>\n"
+        f"🏁 <b>ЭКЗАМЕН</b>\n"
+        f"━━━━━━━━━━━━━━━━━\n"
         f"Вопрос {current_index + 1} из {len(exam['questions'])}\n\n"
         f"{question['question']}"
     )
@@ -375,26 +404,28 @@ async def finish_exam(chat_id):
     percentage = (exam['correct_count'] / total_questions) * 100
     
     result_text = (
-        f"🏁 <b>Экзамен завершен!</b>\n\n"
-        f"📊 Результаты:\n"
-        f"✅ Правильных ответов: {exam['correct_count']}/{total_questions}\n"
+        f"╔═══════════════════╗\n"
+        f"🏁 <b>ЭКЗАМЕН ЗАВЕРШЕН!</b>\n"
+        f"╚═══════════════════╝\n\n"
+        f"📊 <b>Результаты:</b>\n"
+        f"✅ Правильно: {exam['correct_count']}/{total_questions}\n"
         f"❌ Ошибок: {exam['wrong_count']}\n"
         f"📈 Процент: {percentage:.1f}%\n\n"
     )
     
     if percentage >= 90:
-        result_text += "🏆 Оценка: ОТЛИЧНО! Ты настоящий профи!\n"
+        result_text += "🏆 <b>ОТЛИЧНО!</b>\nТы настоящий профи! 🚀\n"
     elif percentage >= 70:
-        result_text += "👍 Оценка: ХОРОШО! Ты молодец!\n"
+        result_text += "👍 <b>ХОРОШО!</b>\nТы молодец! 💪\n"
     elif percentage >= 50:
-        result_text += "😐 Оценка: УДОВЛЕТВОРИТЕЛЬНО. Можно лучше!\n"
+        result_text += "😐 <b>УДОВЛЕТВОРИТЕЛЬНО</b>\nМожно лучше! 📚\n"
     else:
-        result_text += "😔 Оценка: НЕУДОВЛЕТВОРИТЕЛЬНО. Попробуй еще раз!\n"
+        result_text += "😔 <b>НЕ СДАЛ</b>\nПопробуй еще раз! 🔄\n"
     
-    result_text += f"\n💰 Заработано очков: {total_points}\n"
+    result_text += f"\n💰 Заработано: <b>{total_points}</b> очков\n"
     
     if user_id_str in users_data:
-        result_text += f"📊 Всего очков: {users_data[user_id_str]['total_score']}"
+        result_text += f"📊 Всего очков: <b>{users_data[user_id_str]['total_score']}</b>"
     
     await bot.send_message(chat_id, result_text, parse_mode="HTML")
     
@@ -457,20 +488,20 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     
     if is_correct:
         points = POINTS_CORRECT
-        emoji = "✅"
-        result_text = f"{emoji} <b>Правильно!</b>\n\n💰 +{points} очков"
+        phrase = random.choice(positive_phrases)
+        result_text = f"✅ <b>{phrase}</b>\n\n💰 +{points} очков"
     else:
         points = POINTS_WRONG
-        emoji = "❌"
+        phrase = random.choice(negative_phrases)
         correct_answer = question['answers'][question['correct']]
-        result_text = f"{emoji} <b>Неправильно!</b>\n\n"
-        result_text += f"Правильный ответ: {correct_answer}\n\n"
-        result_text += f"💸 {points} очков"
+        result_text = f"❌ <b>Неправильно!</b>\n\n"
+        result_text += f"✔️ Правильный ответ: <b>{correct_answer}</b>\n\n"
+        result_text += f"{phrase}\n💸 {points} очков"
     
     update_user_score(user_id, points, is_correct, game['mode'])
     
     profile = users_data[str(user_id)]
-    result_text += f"\n\n📊 Всего очков: {profile['total_score']}"
+    result_text += f"\n\n📊 Всего очков: <b>{profile['total_score']}</b>"
     
     await callback.message.answer(result_text, parse_mode="HTML")
     
@@ -502,6 +533,7 @@ async def cmd_start(message: types.Message):
     username = message.from_user.username or message.from_user.first_name
     get_user_profile(user_id, username)
     
+    # приветственное сообщение
     welcome_text = (
         "🚗 <b>Привет! Это AutoQuiz!</b>\n\n"
         "🏁 Викторина про ПДД и автомобили,\n"
@@ -521,22 +553,34 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
     
     elif data == "mode_pdd":
-        await callback.message.answer("🚦 <b>Тест ПДД</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
+        await callback.message.answer(
+            "🚦 <b>Тест ПДД</b>\n\n"
+            "Проверь свои знания правил дорожного движения!\n"
+            "Готов? Поехали! 🚗",
+            parse_mode="HTML"
+        )
         await send_question(chat_id, "pdd")
     elif data == "mode_auto":
-        await callback.message.answer("🚗 <b>Автофакты</b>\n\nСейчас будет вопрос!", parse_mode="HTML")
+        await callback.message.answer(
+            "🚗 <b>Автофакты</b>\n\n"
+            "Узнай интересные факты о машинах!\n"
+            "Поехали! 🏎️",
+            parse_mode="HTML"
+        )
         await send_question(chat_id, "auto")
     elif data == "mode_car_quiz":
         await callback.message.answer(
             "🚘 <b>Угадай машину по фото</b>\n\n"
-            "Смотри на фото и выбирай правильную марку! 📸",
+            "Смотри на фото и выбирай правильную марку!\n"
+            "Покажи свои знания! 📸",
             parse_mode="HTML"
         )
         await send_car_question(chat_id)
     elif data == "mode_random":
         await callback.message.answer(
             "🎲 <b>Случайная викторина</b>\n\n"
-            "Вопросы из разных тем - будь готов ко всему! 🔥",
+            "Вопросы из разных тем!\n"
+            "Будь готов ко всему! 🔥",
             parse_mode="HTML"
         )
         await send_question(chat_id, "random")
@@ -544,6 +588,7 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer(
             f"🏁 <b>Режим Экзамена</b>\n\n"
             f"Тебя ждет {EXAM_QUESTIONS_COUNT} вопросов подряд!\n"
+            f"Покажи все свои знания!\n"
             f"Готов? Поехали! 🚀",
             parse_mode="HTML"
         )
@@ -565,8 +610,10 @@ async def handle_callback(callback: types.CallbackQuery):
         ])
         
         await callback.message.answer(
-            "⚠️ <b>Внимание!</b>\n\nТы уверен, что хочешь сбросить весь прогресс?\n"
-            "Все очки и статистика будут удалены!",
+            "⚠️ <b>Внимание!</b>\n\n"
+            "Ты уверен, что хочешь сбросить весь прогресс?\n"
+            "Все очки и статистика будут удалены!\n\n"
+            "Это действие нельзя отменить!",
             parse_mode="HTML",
             reply_markup=keyboard
         )
@@ -574,7 +621,9 @@ async def handle_callback(callback: types.CallbackQuery):
     elif data == "reset_confirm":
         if reset_user_progress(user_id):
             await callback.message.answer(
-                "✅ <b>Прогресс сброшен!</b>\n\nТеперь можешь начать заново!",
+                "✅ <b>Прогресс сброшен!</b>\n\n"
+                "Теперь можешь начать заново!\n"
+                "Удачи! 🍀",
                 parse_mode="HTML",
                 reply_markup=get_main_menu()
             )
@@ -592,7 +641,6 @@ async def handle_callback(callback: types.CallbackQuery):
         await check_answer(callback, question_index, answer_index)
     
     elif data.startswith("car_answer_"):
-        # обработка ответа на фото-викторину
         parts = data.split("_")
         question_index = int(parts[2])
         answer_index = int(parts[3])
@@ -614,7 +662,7 @@ async def handle_callback(callback: types.CallbackQuery):
             else:
                 exam['wrong_count'] += 1
                 correct_answer = current_question['answers'][current_question['correct']]
-                await callback.message.answer(f"❌ Неправильно!\nПравильный ответ: {correct_answer}")
+                await callback.message.answer(f"❌ Неправильно!\n✔️ Правильный ответ: {correct_answer}")
             
             exam['current_index'] += 1
             await send_exam_question(chat_id)
