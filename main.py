@@ -30,7 +30,9 @@ users_data = {}
 user_games = {}
 user_exams = {}
 
-# мотивирующие фразы для правильных ответов
+# словарь для хранения времени последних нажатий (защита от спама)
+last_button_press = {}
+
 positive_phrases = [
     "Отлично! 🎉",
     "Супер! 💪",
@@ -40,7 +42,6 @@ positive_phrases = [
     "Ты на высоте! ⭐"
 ]
 
-# фразы для неправильных ответов
 negative_phrases = [
     "Ничего, в следующий раз получится! 💪",
     "Не расстраивайся, продолжай! 🎯",
@@ -48,6 +49,20 @@ negative_phrases = [
     "Попробуй еще раз! 🔄",
     "Так бывает! 🤷‍♂️"
 ]
+
+# функция проверки интервала между нажатиями
+def check_spam(user_id, interval=1):
+    """проверяет прошло ли достаточно времени с последнего нажатия"""
+    current_time = datetime.now()
+    user_id_str = str(user_id)
+    
+    if user_id_str in last_button_press:
+        time_diff = (current_time - last_button_press[user_id_str]).total_seconds()
+        if time_diff < interval:
+            return False  # слишком быстрые нажатия
+    
+    last_button_press[user_id_str] = current_time
+    return True
 
 def load_users():
     global users_data
@@ -58,16 +73,22 @@ def load_users():
     except FileNotFoundError:
         users_data = {}
         print("⚠️ Файл users.json не найден, создан новый")
-    except:
+        # создаем пустой файл
+        save_users()
+    except json.JSONDecodeError:
         users_data = {}
-        print("❌ Ошибка загрузки users.json")
+        print("❌ Ошибка формата users.json, создан новый")
+        save_users()
+    except Exception as e:
+        users_data = {}
+        print(f"❌ Ошибка загрузки users.json: {e}")
 
 def save_users():
     try:
         with open(USERS_DB, 'w', encoding='utf-8') as f:
             json.dump(users_data, f, ensure_ascii=False, indent=2)
-    except:
-        print("❌ Ошибка сохранения users.json")
+    except Exception as e:
+        print(f"❌ Ошибка сохранения users.json: {e}")
 
 def get_user_profile(user_id, username="Unknown"):
     user_id_str = str(user_id)
@@ -135,7 +156,6 @@ def get_profile_text(user_id):
     else:
         accuracy = 0
     
-    # красивое форматирование профиля
     profile_text = (
         f"╔═══════════════════╗\n"
         f"👤 <b>{username}</b>\n"
@@ -194,7 +214,6 @@ def get_rating_text():
     if not top_users:
         return "🏆 <b>Рейтинг пуст</b>\n\nСтань первым игроком! 🚀"
     
-    # красивое форматирование рейтинга
     rating_text = (
         "╔═══════════════════╗\n"
         "🏆 <b>ТОП ИГРОКОВ</b>\n"
@@ -223,22 +242,34 @@ def load_questions():
         with open(QUESTIONS_PDD, 'r', encoding='utf-8') as f:
             questions_pdd = json.load(f)
         print(f"✅ Загружено {len(questions_pdd)} вопросов ПДД")
-    except:
-        print("❌ Ошибка загрузки questions_pdd.json")
+    except FileNotFoundError:
+        print(f"❌ Файл не найден: {QUESTIONS_PDD}")
+    except json.JSONDecodeError:
+        print(f"❌ Ошибка формата JSON: {QUESTIONS_PDD}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки {QUESTIONS_PDD}: {e}")
     
     try:
         with open(QUESTIONS_AUTO, 'r', encoding='utf-8') as f:
             questions_auto = json.load(f)
         print(f"✅ Загружено {len(questions_auto)} автофактов")
-    except:
-        print("❌ Ошибка загрузки questions_auto.json")
+    except FileNotFoundError:
+        print(f"❌ Файл не найден: {QUESTIONS_AUTO}")
+    except json.JSONDecodeError:
+        print(f"❌ Ошибка формата JSON: {QUESTIONS_AUTO}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки {QUESTIONS_AUTO}: {e}")
     
     try:
         with open(CAR_QUIZ, 'r', encoding='utf-8') as f:
             questions_car = json.load(f)
         print(f"✅ Загружено {len(questions_car)} вопросов с фото машин")
-    except:
-        print("❌ Ошибка загрузки car_quiz.json")
+    except FileNotFoundError:
+        print(f"❌ Файл не найден: {CAR_QUIZ}")
+    except json.JSONDecodeError:
+        print(f"❌ Ошибка формата JSON: {CAR_QUIZ}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки {CAR_QUIZ}: {e}")
 
 def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=False):
     buttons = []
@@ -261,7 +292,10 @@ def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=
 
 async def send_car_question(chat_id):
     if not questions_car:
-        await bot.send_message(chat_id, "❌ Вопросы с машинами не загружены")
+        await bot.send_message(
+            chat_id,
+            "❌ Вопросы с машинами не загружены.\nПроверь файл car_quiz.json"
+        )
         return
     
     question = random.choice(questions_car)
@@ -286,6 +320,14 @@ async def send_car_question(chat_id):
             parse_mode="HTML",
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
+    except FileNotFoundError:
+        print(f"Фото не найдено: {image_path}")
+        await bot.send_message(
+            chat_id,
+            f"🚘 <b>{question['question']}</b>\n\n❌ Фото не найдено: {image_path}",
+            parse_mode="HTML",
+            reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
+        )
     except Exception as e:
         print(f"Ошибка отправки фото: {e}")
         await bot.send_message(
@@ -299,6 +341,11 @@ async def check_car_answer(callback: types.CallbackQuery, question_index, answer
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
+    
+    # проверка спама
+    if not check_spam(user_id):
+        await callback.answer("⚠️ Не так быстро!", show_alert=True)
+        return
     
     get_user_profile(user_id, username)
     
@@ -341,6 +388,11 @@ async def check_car_answer(callback: types.CallbackQuery, question_index, answer
 
 async def start_exam(chat_id, user_id):
     all_questions = questions_pdd + questions_auto
+    
+    if not all_questions:
+        await bot.send_message(chat_id, "❌ Вопросы не загружены. Проверь файлы данных.")
+        return
+    
     exam_questions = random.sample(all_questions, min(EXAM_QUESTIONS_COUNT, len(all_questions)))
     
     user_exams[chat_id] = {
@@ -440,13 +492,23 @@ async def finish_exam(chat_id):
 
 async def send_question(chat_id, mode):
     if mode == "pdd":
+        if not questions_pdd:
+            await bot.send_message(chat_id, "❌ Вопросы ПДД не загружены")
+            return
         questions_list = questions_pdd
         emoji = "🚦"
     elif mode == "auto":
+        if not questions_auto:
+            await bot.send_message(chat_id, "❌ Автофакты не загружены")
+            return
         questions_list = questions_auto
         emoji = "🚗"
     elif mode == "random":
-        questions_list = questions_pdd + questions_auto
+        all_q = questions_pdd + questions_auto
+        if not all_q:
+            await bot.send_message(chat_id, "❌ Вопросы не загружены")
+            return
+        questions_list = all_q
         emoji = "🎲"
     else:
         return
@@ -474,6 +536,11 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
+    
+    # проверка спама
+    if not check_spam(user_id):
+        await callback.answer("⚠️ Не так быстро!", show_alert=True)
+        return
     
     get_user_profile(user_id, username)
     
