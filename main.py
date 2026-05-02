@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import logging
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -13,10 +14,21 @@ QUESTIONS_PDD = "data/questions_pdd.json"
 QUESTIONS_AUTO = "data/questions_auto.json"
 CAR_QUIZ = "data/car_quiz.json"
 USERS_DB = "data/users.json"
+LOG_FILE = "log.txt"
 
 POINTS_CORRECT = 10
 POINTS_WRONG = -5
 EXAM_QUESTIONS_COUNT = 20
+
+# настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 # создаем объекты бота и диспетчера
 bot = Bot(token=TOKEN_BOT)
@@ -30,7 +42,6 @@ users_data = {}
 user_games = {}
 user_exams = {}
 
-# словарь для хранения времени последних нажатий (защита от спама)
 last_button_press = {}
 
 positive_phrases = [
@@ -50,7 +61,6 @@ negative_phrases = [
     "Так бывает! 🤷‍♂️"
 ]
 
-# функция проверки интервала между нажатиями
 def check_spam(user_id, interval=1):
     """проверяет прошло ли достаточно времени с последнего нажатия"""
     current_time = datetime.now()
@@ -59,7 +69,7 @@ def check_spam(user_id, interval=1):
     if user_id_str in last_button_press:
         time_diff = (current_time - last_button_press[user_id_str]).total_seconds()
         if time_diff < interval:
-            return False  # слишком быстрые нажатия
+            return False
     
     last_button_press[user_id_str] = current_time
     return True
@@ -69,26 +79,25 @@ def load_users():
     try:
         with open(USERS_DB, 'r', encoding='utf-8') as f:
             users_data = json.load(f)
-        print(f"✅ Загружено {len(users_data)} пользователей")
+        logging.info(f"Загружено {len(users_data)} пользователей")
     except FileNotFoundError:
         users_data = {}
-        print("⚠️ Файл users.json не найден, создан новый")
-        # создаем пустой файл
+        logging.warning("Файл users.json не найден, создан новый")
         save_users()
     except json.JSONDecodeError:
         users_data = {}
-        print("❌ Ошибка формата users.json, создан новый")
+        logging.error("Ошибка формата users.json, создан новый")
         save_users()
     except Exception as e:
         users_data = {}
-        print(f"❌ Ошибка загрузки users.json: {e}")
+        logging.error(f"Ошибка загрузки users.json: {e}")
 
 def save_users():
     try:
         with open(USERS_DB, 'w', encoding='utf-8') as f:
             json.dump(users_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"❌ Ошибка сохранения users.json: {e}")
+        logging.error(f"Ошибка сохранения users.json: {e}")
 
 def get_user_profile(user_id, username="Unknown"):
     user_id_str = str(user_id)
@@ -109,6 +118,7 @@ def get_user_profile(user_id, username="Unknown"):
             "last_played": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         save_users()
+        logging.info(f"Создан новый пользователь: {username} (ID: {user_id})")
     
     return users_data[user_id_str]
 
@@ -135,6 +145,10 @@ def update_user_score(user_id, points, is_correct, mode):
     profile['last_played'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     save_users()
+    
+    # логируем ответ
+    result = "правильно" if is_correct else "неправильно"
+    logging.info(f"Пользователь {profile['username']} ответил {result} в режиме {mode}. Очки: {points}")
 
 def get_profile_text(user_id):
     user_id_str = str(user_id)
@@ -198,6 +212,7 @@ def reset_user_progress(user_id):
         }
         
         save_users()
+        logging.info(f"Пользователь {username} (ID: {user_id}) сбросил прогресс")
         return True
     
     return False
@@ -241,35 +256,35 @@ def load_questions():
     try:
         with open(QUESTIONS_PDD, 'r', encoding='utf-8') as f:
             questions_pdd = json.load(f)
-        print(f"✅ Загружено {len(questions_pdd)} вопросов ПДД")
+        logging.info(f"Загружено {len(questions_pdd)} вопросов ПДД")
     except FileNotFoundError:
-        print(f"❌ Файл не найден: {QUESTIONS_PDD}")
+        logging.error(f"Файл не найден: {QUESTIONS_PDD}")
     except json.JSONDecodeError:
-        print(f"❌ Ошибка формата JSON: {QUESTIONS_PDD}")
+        logging.error(f"Ошибка формата JSON: {QUESTIONS_PDD}")
     except Exception as e:
-        print(f"❌ Ошибка загрузки {QUESTIONS_PDD}: {e}")
+        logging.error(f"Ошибка загрузки {QUESTIONS_PDD}: {e}")
     
     try:
         with open(QUESTIONS_AUTO, 'r', encoding='utf-8') as f:
             questions_auto = json.load(f)
-        print(f"✅ Загружено {len(questions_auto)} автофактов")
+        logging.info(f"Загружено {len(questions_auto)} автофактов")
     except FileNotFoundError:
-        print(f"❌ Файл не найден: {QUESTIONS_AUTO}")
+        logging.error(f"Файл не найден: {QUESTIONS_AUTO}")
     except json.JSONDecodeError:
-        print(f"❌ Ошибка формата JSON: {QUESTIONS_AUTO}")
+        logging.error(f"Ошибка формата JSON: {QUESTIONS_AUTO}")
     except Exception as e:
-        print(f"❌ Ошибка загрузки {QUESTIONS_AUTO}: {e}")
+        logging.error(f"Ошибка загрузки {QUESTIONS_AUTO}: {e}")
     
     try:
         with open(CAR_QUIZ, 'r', encoding='utf-8') as f:
             questions_car = json.load(f)
-        print(f"✅ Загружено {len(questions_car)} вопросов с фото машин")
+        logging.info(f"Загружено {len(questions_car)} вопросов с фото машин")
     except FileNotFoundError:
-        print(f"❌ Файл не найден: {CAR_QUIZ}")
+        logging.error(f"Файл не найден: {CAR_QUIZ}")
     except json.JSONDecodeError:
-        print(f"❌ Ошибка формата JSON: {CAR_QUIZ}")
+        logging.error(f"Ошибка формата JSON: {CAR_QUIZ}")
     except Exception as e:
-        print(f"❌ Ошибка загрузки {CAR_QUIZ}: {e}")
+        logging.error(f"Ошибка загрузки {CAR_QUIZ}: {e}")
 
 def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=False):
     buttons = []
@@ -321,7 +336,7 @@ async def send_car_question(chat_id):
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
     except FileNotFoundError:
-        print(f"Фото не найдено: {image_path}")
+        logging.error(f"Фото не найдено: {image_path}")
         await bot.send_message(
             chat_id,
             f"🚘 <b>{question['question']}</b>\n\n❌ Фото не найдено: {image_path}",
@@ -329,7 +344,7 @@ async def send_car_question(chat_id):
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
     except Exception as e:
-        print(f"Ошибка отправки фото: {e}")
+        logging.error(f"Ошибка отправки фото: {e}")
         await bot.send_message(
             chat_id,
             f"🚘 <b>{question['question']}</b>\n\n(фото не загрузилось)",
@@ -342,7 +357,6 @@ async def check_car_answer(callback: types.CallbackQuery, question_index, answer
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
     
-    # проверка спама
     if not check_spam(user_id):
         await callback.answer("⚠️ Не так быстро!", show_alert=True)
         return
@@ -403,6 +417,7 @@ async def start_exam(chat_id, user_id):
         "user_id": user_id
     }
     
+    logging.info(f"Пользователь ID:{user_id} начал экзамен")
     await send_exam_question(chat_id)
 
 async def send_exam_question(chat_id):
@@ -454,6 +469,8 @@ async def finish_exam(chat_id):
     
     total_questions = len(exam['questions'])
     percentage = (exam['correct_count'] / total_questions) * 100
+    
+    logging.info(f"Пользователь ID:{user_id} завершил экзамен. Результат: {percentage:.1f}%")
     
     result_text = (
         f"╔═══════════════════╗\n"
@@ -537,7 +554,6 @@ async def check_answer(callback: types.CallbackQuery, question_index, answer_ind
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
     
-    # проверка спама
     if not check_spam(user_id):
         await callback.answer("⚠️ Не так быстро!", show_alert=True)
         return
@@ -600,6 +616,8 @@ async def cmd_start(message: types.Message):
     username = message.from_user.username or message.from_user.first_name
     get_user_profile(user_id, username)
     
+    logging.info(f"Пользователь {username} (ID: {user_id}) запустил бота")
+    
     # приветственное сообщение
     welcome_text = (
         "🚗 <b>Привет! Это AutoQuiz!</b>\n\n"
@@ -620,6 +638,7 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
     
     elif data == "mode_pdd":
+        logging.info(f"Пользователь ID:{user_id} выбрал режим ПДД")
         await callback.message.answer(
             "🚦 <b>Тест ПДД</b>\n\n"
             "Проверь свои знания правил дорожного движения!\n"
@@ -628,6 +647,7 @@ async def handle_callback(callback: types.CallbackQuery):
         )
         await send_question(chat_id, "pdd")
     elif data == "mode_auto":
+        logging.info(f"Пользователь ID:{user_id} выбрал режим Автофакты")
         await callback.message.answer(
             "🚗 <b>Автофакты</b>\n\n"
             "Узнай интересные факты о машинах!\n"
@@ -636,6 +656,7 @@ async def handle_callback(callback: types.CallbackQuery):
         )
         await send_question(chat_id, "auto")
     elif data == "mode_car_quiz":
+        logging.info(f"Пользователь ID:{user_id} выбрал режим Угадай машину")
         await callback.message.answer(
             "🚘 <b>Угадай машину по фото</b>\n\n"
             "Смотри на фото и выбирай правильную марку!\n"
@@ -644,6 +665,7 @@ async def handle_callback(callback: types.CallbackQuery):
         )
         await send_car_question(chat_id)
     elif data == "mode_random":
+        logging.info(f"Пользователь ID:{user_id} выбрал режим Случайная викторина")
         await callback.message.answer(
             "🎲 <b>Случайная викторина</b>\n\n"
             "Вопросы из разных тем!\n"
@@ -740,12 +762,12 @@ async def handle_callback(callback: types.CallbackQuery):
 async def main():
     load_questions()
     load_users()
-    print("🤖 Бот запущен!")
+    logging.info("🤖 Бот запущен!")
     await dp.start_polling(bot)
 
 # запуск программы
 if __name__ == "__main__":
     asyncio.run(main())
 
-
+# сохрани этот файл как main_part16.py и протестируй, заменив TOKEN_BOT на свой токен
 
