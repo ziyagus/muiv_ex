@@ -2,6 +2,8 @@ import asyncio
 import json
 import random
 import logging
+import os
+import shutil
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -14,12 +16,14 @@ QUESTIONS_PDD = "data/questions_pdd.json"
 QUESTIONS_AUTO = "data/questions_auto.json"
 CAR_QUIZ = "data/car_quiz.json"
 USERS_DB = "data/users.json"
+USERS_BACKUP = "data/users_backup.json"
 LOG_FILE = "log.txt"
 
-POINTS_CORRECT = 10
-POINTS_WRONG = -5
-EXAM_QUESTIONS_COUNT = 20
+POINTS_CORRECT = 10  # очки за правильный ответ
+POINTS_WRONG = -5    # штраф за ошибку
+EXAM_QUESTIONS_COUNT = 20  # количество вопросов в экзамене
 
+# настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -43,24 +47,14 @@ user_exams = {}
 
 last_button_press = {}
 
-positive_phrases = [
-    "Отлично! 🎉",
-    "Супер! 💪",
-    "Молодец! 🌟",
-    "Так держать! 🚀",
-    "Круто! 🔥",
-    "Ты на высоте! ⭐"
-]
+# мотивирующие фразы
+positive_phrases = ["Отлично! 🎉", "Супер! 💪", "Молодец! 🌟", "Так держать! 🚀", "Круто! 🔥", "Ты на высоте! ⭐"]
+negative_phrases = ["Ничего, в следующий раз получится! 💪", "Не расстраивайся, продолжай! 🎯", "Учимся на ошибках! 📚", "Попробуй еще раз! 🔄", "Так бывает! 🤷‍♂️"]
 
-negative_phrases = [
-    "Ничего, в следующий раз получится! 💪",
-    "Не расстраивайся, продолжай! 🎯",
-    "Учимся на ошибках! 📚",
-    "Попробуй еще раз! 🔄",
-    "Так бывает! 🤷‍♂️"
-]
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ 
 
 def check_spam(user_id, interval=1):
+    """проверяет прошло ли достаточно времени с последнего нажатия"""
     current_time = datetime.now()
     user_id_str = str(user_id)
     
@@ -73,6 +67,7 @@ def check_spam(user_id, interval=1):
     return True
 
 def load_users():
+    """загружает данные пользователей из json"""
     global users_data
     try:
         with open(USERS_DB, 'r', encoding='utf-8') as f:
@@ -83,21 +78,31 @@ def load_users():
         logging.warning("Файл users.json не найден, создан новый")
         save_users()
     except json.JSONDecodeError:
-        users_data = {}
-        logging.error("Ошибка формата users.json, создан новый")
-        save_users()
+        try:
+            with open(USERS_BACKUP, 'r', encoding='utf-8') as f:
+                users_data = json.load(f)
+            logging.warning("Загружен бэкап users.json")
+        except:
+            users_data = {}
+            logging.error("Ошибка формата users.json, создан новый")
+            save_users()
     except Exception as e:
         users_data = {}
         logging.error(f"Ошибка загрузки users.json: {e}")
 
 def save_users():
+    """сохраняет данные пользователей в json"""
     try:
+        if os.path.exists(USERS_DB):
+            shutil.copy2(USERS_DB, USERS_BACKUP)
+        
         with open(USERS_DB, 'w', encoding='utf-8') as f:
             json.dump(users_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logging.error(f"Ошибка сохранения users.json: {e}")
 
 def get_user_profile(user_id, username="Unknown"):
+    """получает или создает профиль пользователя"""
     user_id_str = str(user_id)
     
     if user_id_str not in users_data:
@@ -121,6 +126,7 @@ def get_user_profile(user_id, username="Unknown"):
     return users_data[user_id_str]
 
 def update_user_score(user_id, points, is_correct, mode):
+    """обновляет очки пользователя"""
     user_id_str = str(user_id)
     profile = users_data[user_id_str]
     
@@ -148,6 +154,7 @@ def update_user_score(user_id, points, is_correct, mode):
     logging.info(f"Пользователь {profile['username']} ответил {result} в режиме {mode}. Очки: {points}")
 
 def get_profile_text(user_id):
+    """формирует текст профиля пользователя"""
     user_id_str = str(user_id)
     
     if user_id_str not in users_data:
@@ -188,6 +195,7 @@ def get_profile_text(user_id):
     return profile_text
 
 def reset_user_progress(user_id):
+    """сбрасывает прогресс пользователя"""
     user_id_str = str(user_id)
     
     if user_id_str in users_data:
@@ -215,6 +223,7 @@ def reset_user_progress(user_id):
     return False
 
 def get_rating_text():
+    """формирует текст рейтинга игроков"""
     sorted_users = sorted(
         users_data.items(),
         key=lambda x: x[1].get('total_score', 0),
@@ -247,7 +256,6 @@ def get_rating_text():
     
     return rating_text
 
-# функция получения общей статистики бота
 def get_bot_stats():
     """возвращает общую статистику бота"""
     total_users = len(users_data)
@@ -278,42 +286,33 @@ def get_bot_stats():
     return stats_text
 
 def load_questions():
+    """загружает вопросы из json файлов"""
     global questions_pdd, questions_auto, questions_car
     
-    try:
-        with open(QUESTIONS_PDD, 'r', encoding='utf-8') as f:
-            questions_pdd = json.load(f)
-        logging.info(f"Загружено {len(questions_pdd)} вопросов ПДД")
-    except FileNotFoundError:
-        logging.error(f"Файл не найден: {QUESTIONS_PDD}")
-    except json.JSONDecodeError:
-        logging.error(f"Ошибка формата JSON: {QUESTIONS_PDD}")
-    except Exception as e:
-        logging.error(f"Ошибка загрузки {QUESTIONS_PDD}: {e}")
+    def safe_load_json(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            logging.info(f"Загружено {len(data)} элементов из {filepath}")
+            return data
+        except FileNotFoundError:
+            logging.error(f"Файл не найден: {filepath}")
+            return []
+        except json.JSONDecodeError:
+            logging.error(f"Ошибка формата JSON: {filepath}")
+            return []
+        except Exception as e:
+            logging.error(f"Ошибка загрузки {filepath}: {e}")
+            return []
     
-    try:
-        with open(QUESTIONS_AUTO, 'r', encoding='utf-8') as f:
-            questions_auto = json.load(f)
-        logging.info(f"Загружено {len(questions_auto)} автофактов")
-    except FileNotFoundError:
-        logging.error(f"Файл не найден: {QUESTIONS_AUTO}")
-    except json.JSONDecodeError:
-        logging.error(f"Ошибка формата JSON: {QUESTIONS_AUTO}")
-    except Exception as e:
-        logging.error(f"Ошибка загрузки {QUESTIONS_AUTO}: {e}")
-    
-    try:
-        with open(CAR_QUIZ, 'r', encoding='utf-8') as f:
-            questions_car = json.load(f)
-        logging.info(f"Загружено {len(questions_car)} вопросов с фото машин")
-    except FileNotFoundError:
-        logging.error(f"Файл не найден: {CAR_QUIZ}")
-    except json.JSONDecodeError:
-        logging.error(f"Ошибка формата JSON: {CAR_QUIZ}")
-    except Exception as e:
-        logging.error(f"Ошибка загрузки {CAR_QUIZ}: {e}")
+    questions_pdd = safe_load_json(QUESTIONS_PDD)
+    questions_auto = safe_load_json(QUESTIONS_AUTO)
+    questions_car = safe_load_json(CAR_QUIZ)
+
+# ФУНКЦИИ СОЗДАНИЯ КЛАВИАТУР
 
 def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=False):
+    """создает клавиатуру с вариантами ответов"""
     buttons = []
     for i, answer in enumerate(question['answers']):
         if is_exam:
@@ -332,7 +331,66 @@ def create_answer_keyboard(question, question_index, is_exam=False, is_car_quiz=
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
 
+def get_main_menu():
+    """создает главное меню бота"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚦 Тест ПДД", callback_data="mode_pdd")],
+        [InlineKeyboardButton(text="🚗 Автофакты", callback_data="mode_auto")],
+        [InlineKeyboardButton(text="🚘 Угадай машину по фото", callback_data="mode_car_quiz")],
+        [InlineKeyboardButton(text="🎲 Случайная викторина", callback_data="mode_random")],
+        [InlineKeyboardButton(text="🏁 Экзамен", callback_data="mode_exam")],
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
+        [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="rating")],
+    ])
+    return keyboard
+
+# ФУНКЦИИ ОТПРАВКИ ВОПРОСОВ 
+
+async def send_question(chat_id, mode):
+    """отправляет вопрос пользователю"""
+    if mode == "pdd":
+        if not questions_pdd:
+            await bot.send_message(chat_id, "❌ Вопросы ПДД не загружены")
+            return
+        questions_list = questions_pdd
+        emoji = "🚦"
+    elif mode == "auto":
+        if not questions_auto:
+            await bot.send_message(chat_id, "❌ Автофакты не загружены")
+            return
+        questions_list = questions_auto
+        emoji = "🚗"
+    elif mode == "random":
+        all_q = questions_pdd + questions_auto
+        if not all_q:
+            await bot.send_message(chat_id, "❌ Вопросы не загружены")
+            return
+        questions_list = all_q
+        emoji = "🎲"
+    else:
+        return
+    
+    question = random.choice(questions_list)
+    question_index = questions_list.index(question)
+    
+    user_games[chat_id] = {
+        "mode": mode,
+        "question": question,
+        "question_index": question_index,
+        "questions_list": questions_list
+    }
+    
+    question_text = f"{emoji} <b>Вопрос:</b>\n\n{question['question']}"
+    
+    await bot.send_message(
+        chat_id,
+        question_text,
+        parse_mode="HTML",
+        reply_markup=create_answer_keyboard(question, question_index)
+    )
+
 async def send_car_question(chat_id):
+    """отправляет вопрос с фото машины"""
     if not questions_car:
         await bot.send_message(
             chat_id,
@@ -379,7 +437,59 @@ async def send_car_question(chat_id):
             reply_markup=create_answer_keyboard(question, question_index, is_car_quiz=True)
         )
 
+# ФУНКЦИИ ПРОВЕРКИ ОТВЕТОВ 
+
+async def check_answer(callback: types.CallbackQuery, question_index, answer_index):
+    """проверяет ответ на обычный вопрос"""
+    chat_id = callback.message.chat.id
+    user_id = callback.from_user.id
+    username = callback.from_user.username or callback.from_user.first_name
+    
+    if not check_spam(user_id):
+        await callback.answer("⚠️ Не так быстро!", show_alert=True)
+        return
+    
+    get_user_profile(user_id, username)
+    
+    if chat_id not in user_games:
+        await callback.message.answer("❌ Нет активной игры. Начни новую через /start")
+        return
+    
+    game = user_games[chat_id]
+    question = game['question']
+    
+    is_correct = (answer_index == question['correct'])
+    
+    if is_correct:
+        points = POINTS_CORRECT
+        phrase = random.choice(positive_phrases)
+        result_text = f"✅ <b>{phrase}</b>\n\n💰 +{points} очков"
+    else:
+        points = POINTS_WRONG
+        phrase = random.choice(negative_phrases)
+        correct_answer = question['answers'][question['correct']]
+        result_text = f"❌ <b>Неправильно!</b>\n\n"
+        result_text += f"✔️ Правильный ответ: <b>{correct_answer}</b>\n\n"
+        result_text += f"{phrase}\n💸 {points} очков"
+    
+    update_user_score(user_id, points, is_correct, game['mode'])
+    
+    profile = users_data[str(user_id)]
+    result_text += f"\n\n📊 Всего очков: <b>{profile['total_score']}</b>"
+    
+    await callback.message.answer(result_text, parse_mode="HTML")
+    
+    del user_games[chat_id]
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➡️ Следующий вопрос", callback_data=f"mode_{game['mode']}")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.answer("Что дальше?", reply_markup=keyboard)
+
 async def check_car_answer(callback: types.CallbackQuery, question_index, answer_index):
+    """проверяет ответ на фото-викторину"""
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
     username = callback.from_user.username or callback.from_user.first_name
@@ -427,7 +537,10 @@ async def check_car_answer(callback: types.CallbackQuery, question_index, answer
     
     await callback.message.answer("Что дальше?", reply_markup=keyboard)
 
+# ФУНКЦИИ ЭКЗАМЕНА 
+
 async def start_exam(chat_id, user_id):
+    """начинает экзамен"""
     all_questions = questions_pdd + questions_auto
     
     if not all_questions:
@@ -448,6 +561,7 @@ async def start_exam(chat_id, user_id):
     await send_exam_question(chat_id)
 
 async def send_exam_question(chat_id):
+    """отправляет вопрос экзамена"""
     if chat_id not in user_exams:
         return
     
@@ -475,6 +589,7 @@ async def send_exam_question(chat_id):
     )
 
 async def finish_exam(chat_id):
+    """завершает экзамен и показывает результаты"""
     if chat_id not in user_exams:
         return
     
@@ -534,111 +649,10 @@ async def finish_exam(chat_id):
     
     del user_exams[chat_id]
 
-async def send_question(chat_id, mode):
-    if mode == "pdd":
-        if not questions_pdd:
-            await bot.send_message(chat_id, "❌ Вопросы ПДД не загружены")
-            return
-        questions_list = questions_pdd
-        emoji = "🚦"
-    elif mode == "auto":
-        if not questions_auto:
-            await bot.send_message(chat_id, "❌ Автофакты не загружены")
-            return
-        questions_list = questions_auto
-        emoji = "🚗"
-    elif mode == "random":
-        all_q = questions_pdd + questions_auto
-        if not all_q:
-            await bot.send_message(chat_id, "❌ Вопросы не загружены")
-            return
-        questions_list = all_q
-        emoji = "🎲"
-    else:
-        return
-    
-    question = random.choice(questions_list)
-    question_index = questions_list.index(question)
-    
-    user_games[chat_id] = {
-        "mode": mode,
-        "question": question,
-        "question_index": question_index,
-        "questions_list": questions_list
-    }
-    
-    question_text = f"{emoji} <b>Вопрос:</b>\n\n{question['question']}"
-    
-    await bot.send_message(
-        chat_id,
-        question_text,
-        parse_mode="HTML",
-        reply_markup=create_answer_keyboard(question, question_index)
-    )
-
-async def check_answer(callback: types.CallbackQuery, question_index, answer_index):
-    chat_id = callback.message.chat.id
-    user_id = callback.from_user.id
-    username = callback.from_user.username or callback.from_user.first_name
-    
-    if not check_spam(user_id):
-        await callback.answer("⚠️ Не так быстро!", show_alert=True)
-        return
-    
-    get_user_profile(user_id, username)
-    
-    if chat_id not in user_games:
-        await callback.message.answer("❌ Нет активной игры. Начни новую через /start")
-        return
-    
-    game = user_games[chat_id]
-    question = game['question']
-    
-    is_correct = (answer_index == question['correct'])
-    
-    if is_correct:
-        points = POINTS_CORRECT
-        phrase = random.choice(positive_phrases)
-        result_text = f"✅ <b>{phrase}</b>\n\n💰 +{points} очков"
-    else:
-        points = POINTS_WRONG
-        phrase = random.choice(negative_phrases)
-        correct_answer = question['answers'][question['correct']]
-        result_text = f"❌ <b>Неправильно!</b>\n\n"
-        result_text += f"✔️ Правильный ответ: <b>{correct_answer}</b>\n\n"
-        result_text += f"{phrase}\n💸 {points} очков"
-    
-    update_user_score(user_id, points, is_correct, game['mode'])
-    
-    profile = users_data[str(user_id)]
-    result_text += f"\n\n📊 Всего очков: <b>{profile['total_score']}</b>"
-    
-    await callback.message.answer(result_text, parse_mode="HTML")
-    
-    del user_games[chat_id]
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➡️ Следующий вопрос", callback_data=f"mode_{game['mode']}")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
-    
-    await callback.message.answer("Что дальше?", reply_markup=keyboard)
-
-def get_main_menu():
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚦 Тест ПДД", callback_data="mode_pdd")],
-        [InlineKeyboardButton(text="🚗 Автофакты", callback_data="mode_auto")],
-        [InlineKeyboardButton(text="🚘 Угадай машину по фото", callback_data="mode_car_quiz")],
-        [InlineKeyboardButton(text="🎲 Случайная викторина", callback_data="mode_random")],
-        [InlineKeyboardButton(text="🏁 Экзамен", callback_data="mode_exam")],
-        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="🏆 Рейтинг", callback_data="rating")],
-    ])
-    return keyboard
-
 # обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    """обработчик команды /start"""
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     get_user_profile(user_id, username)
@@ -654,22 +668,21 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
 
-# новая команда /help
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     """обработчик команды /help"""
     help_text = (
         "📖 <b>Помощь по боту AutoQuiz</b>\n\n"
         "<b>Команды:</b>\n"
-        "/start — запустить бота\n"
-        "/help — показать эту справку\n"
-        "/stats — статистика бота\n\n"
+        "/start - запустить бота\n"
+        "/help - показать эту справку\n"
+        "/stats - статистика бота\n\n"
         "<b>Режимы игры:</b>\n"
-        "🚦 <b>Тест ПДД</b> — вопросы по правилам дорожного движения\n"
-        "🚗 <b>Автофакты</b> — интересные факты об автомобилях\n"
-        "🚘 <b>Угадай машину</b> — узнай марку по фото\n"
-        "🎲 <b>Случайная викторина</b> — микс всех вопросов\n"
-        "🏁 <b>Экзамен</b> — 20 вопросов подряд\n\n"
+        "🚦 <b>Тест ПДД</b> - вопросы по правилам дорожного движения\n"
+        "🚗 <b>Автофакты</b> - интересные факты об автомобилях\n"
+        "🚘 <b>Угадай машину</b> - узнай марку по фото\n"
+        "🎲 <b>Случайная викторина</b> - микс всех вопросов\n"
+        "🏁 <b>Экзамен</b> - 20 вопросов подряд\n\n"
         "<b>Система очков:</b>\n"
         f"✅ Правильный ответ: +{POINTS_CORRECT} очков\n"
         f"❌ Неправильный ответ: {POINTS_WRONG} очков\n\n"
@@ -684,7 +697,6 @@ async def cmd_help(message: types.Message):
     await message.answer(help_text, parse_mode="HTML")
     logging.info(f"Пользователь ID:{message.from_user.id} запросил помощь")
 
-# новая команда /stats
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
     """обработчик команды /stats"""
@@ -692,8 +704,11 @@ async def cmd_stats(message: types.Message):
     await message.answer(stats_text, parse_mode="HTML")
     logging.info(f"Пользователь ID:{message.from_user.id} запросил статистику")
 
+# ОБРАБОТЧИК ЗАПРОСОВ
+
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
+    """обработчик нажатий на кнопки"""
     data = callback.data
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
@@ -711,6 +726,7 @@ async def handle_callback(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await send_question(chat_id, "pdd")
+    
     elif data == "mode_auto":
         logging.info(f"Пользователь ID:{user_id} выбрал режим Автофакты")
         await callback.message.answer(
@@ -720,6 +736,7 @@ async def handle_callback(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await send_question(chat_id, "auto")
+    
     elif data == "mode_car_quiz":
         logging.info(f"Пользователь ID:{user_id} выбрал режим Угадай машину")
         await callback.message.answer(
@@ -729,6 +746,7 @@ async def handle_callback(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await send_car_question(chat_id)
+    
     elif data == "mode_random":
         logging.info(f"Пользователь ID:{user_id} выбрал режим Случайная викторина")
         await callback.message.answer(
@@ -738,6 +756,7 @@ async def handle_callback(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await send_question(chat_id, "random")
+    
     elif data == "mode_exam":
         await callback.message.answer(
             f"🏁 <b>Режим Экзамена</b>\n\n"
@@ -747,6 +766,7 @@ async def handle_callback(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await start_exam(chat_id, user_id)
+    
     elif data == "profile":
         profile_text = get_profile_text(user_id)
         
@@ -825,9 +845,21 @@ async def handle_callback(callback: types.CallbackQuery):
 
 # главная функция запуска бота
 async def main():
+    # проверка наличия папки data
+    if not os.path.exists('data'):
+        logging.warning("Папка data не найдена, создаю...")
+        os.makedirs('data', exist_ok=True)
+    
+    # загрузка данных
     load_questions()
     load_users()
-    logging.info("🤖 Бот запущен!")
+    
+    # проверка что хотя бы некоторые вопросы загружены
+    if not questions_pdd and not questions_auto and not questions_car:
+        logging.error("⚠️ ВНИМАНИЕ: Не загружено ни одного вопроса! Проверь файлы данных.")
+    
+    logging.info("🤖 Бот AutoQuiz запущен и готов к работе!")
+    
     await dp.start_polling(bot)
 
 # запуск программы
