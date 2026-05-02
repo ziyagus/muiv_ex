@@ -20,7 +20,6 @@ POINTS_CORRECT = 10
 POINTS_WRONG = -5
 EXAM_QUESTIONS_COUNT = 20
 
-# настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -62,7 +61,6 @@ negative_phrases = [
 ]
 
 def check_spam(user_id, interval=1):
-    """проверяет прошло ли достаточно времени с последнего нажатия"""
     current_time = datetime.now()
     user_id_str = str(user_id)
     
@@ -146,7 +144,6 @@ def update_user_score(user_id, points, is_correct, mode):
     
     save_users()
     
-    # логируем ответ
     result = "правильно" if is_correct else "неправильно"
     logging.info(f"Пользователь {profile['username']} ответил {result} в режиме {mode}. Очки: {points}")
 
@@ -249,6 +246,36 @@ def get_rating_text():
         rating_text += f"{position_emoji} <b>{username}</b>\n    💰 {score} очков\n\n"
     
     return rating_text
+
+# функция получения общей статистики бота
+def get_bot_stats():
+    """возвращает общую статистику бота"""
+    total_users = len(users_data)
+    total_questions = len(questions_pdd) + len(questions_auto) + len(questions_car)
+    
+    total_games = sum(profile.get('pdd_games', 0) + 
+                     profile.get('auto_games', 0) + 
+                     profile.get('car_quiz_games', 0) +
+                     profile.get('random_games', 0) +
+                     profile.get('exam_games', 0)
+                     for profile in users_data.values())
+    
+    total_answers = sum(profile.get('correct_answers', 0) + 
+                       profile.get('wrong_answers', 0)
+                       for profile in users_data.values())
+    
+    stats_text = (
+        "📊 <b>Статистика бота AutoQuiz</b>\n\n"
+        f"👥 Всего пользователей: {total_users}\n"
+        f"❓ Всего вопросов: {total_questions}\n"
+        f"🎮 Всего игр: {total_games}\n"
+        f"📝 Всего ответов: {total_answers}\n\n"
+        f"📚 Вопросов ПДД: {len(questions_pdd)}\n"
+        f"🚗 Автофактов: {len(questions_auto)}\n"
+        f"🚘 Фото-викторина: {len(questions_car)}"
+    )
+    
+    return stats_text
 
 def load_questions():
     global questions_pdd, questions_auto, questions_car
@@ -627,6 +654,44 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, parse_mode="HTML", reply_markup=get_main_menu())
 
+# новая команда /help
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    """обработчик команды /help"""
+    help_text = (
+        "📖 <b>Помощь по боту AutoQuiz</b>\n\n"
+        "<b>Команды:</b>\n"
+        "/start — запустить бота\n"
+        "/help — показать эту справку\n"
+        "/stats — статистика бота\n\n"
+        "<b>Режимы игры:</b>\n"
+        "🚦 <b>Тест ПДД</b> — вопросы по правилам дорожного движения\n"
+        "🚗 <b>Автофакты</b> — интересные факты об автомобилях\n"
+        "🚘 <b>Угадай машину</b> — узнай марку по фото\n"
+        "🎲 <b>Случайная викторина</b> — микс всех вопросов\n"
+        "🏁 <b>Экзамен</b> — 20 вопросов подряд\n\n"
+        "<b>Система очков:</b>\n"
+        f"✅ Правильный ответ: +{POINTS_CORRECT} очков\n"
+        f"❌ Неправильный ответ: {POINTS_WRONG} очков\n\n"
+        "<b>Профиль:</b>\n"
+        "Смотри свою статистику и прогресс\n"
+        "Сбрасывай очки если нужно начать заново\n\n"
+        "<b>Рейтинг:</b>\n"
+        "Соревнуйся с другими игроками!\n"
+        "Попади в топ-10! 🏆"
+    )
+    
+    await message.answer(help_text, parse_mode="HTML")
+    logging.info(f"Пользователь ID:{message.from_user.id} запросил помощь")
+
+# новая команда /stats
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+    """обработчик команды /stats"""
+    stats_text = get_bot_stats()
+    await message.answer(stats_text, parse_mode="HTML")
+    logging.info(f"Пользователь ID:{message.from_user.id} запросил статистику")
+
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
     data = callback.data
@@ -769,5 +834,5 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-# сохрани этот файл как main_part16.py и протестируй, заменив TOKEN_BOT на свой токен
+
 
